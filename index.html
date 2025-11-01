@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Standalone Game Pad (No Server)</title>
+  <title>Game Pad + Symbol Matrix (Firebase Ready)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -14,7 +14,7 @@
     #wrap{display:grid;grid-template-rows:auto 1fr auto;height:100%;gap:8px}
     header,footer{padding:10px 12px;text-align:center;color:var(--muted)}
     header b{color:var(--fg)}
-    #fsBtn,#hudToggle,#copyBtn,#streamBtn{
+    #fsBtn,#hudToggle,#copyBtn,#streamBtn,#clearBtn,#toggleMatrixBtn,#publishBtn{
       position:fixed;z-index:10;background:#1b2332;color:#dfe7ff;border:1px solid #2b3344;border-radius:10px;
       padding:8px 12px;font-size:13px
     }
@@ -22,7 +22,10 @@
     #hudToggle{top:10px;left:12px}
     #copyBtn{top:10px;left:110px}
     #streamBtn{top:10px;left:212px}
-    #fsBtn:active,#hudToggle:active,#copyBtn:active,#streamBtn:active{transform:scale(0.98)}
+    #clearBtn{top:10px;left:314px}
+    #toggleMatrixBtn{top:10px;left:392px}
+    #publishBtn{top:10px;left:516px}
+    #fsBtn:active,#hudToggle:active,#copyBtn:active,#streamBtn:active,#clearBtn:active,#toggleMatrixBtn:active,#publishBtn:active{transform:scale(0.98)}
     #controls{display:grid;grid-template-columns:1fr 1.2fr 1fr;gap:12px;padding:8px 12px 14px;align-items:center;height:100%}
     .stick{position:relative;width:100%;max-width:300px;aspect-ratio:1/1;margin:0 auto;border-radius:50%;
       background:radial-gradient(85% 85% at 50% 50%,#1c2330,#121722);border:2px solid #2b3344;box-shadow:inset 0 0 20px rgba(0,0,0,.35);touch-action:none}
@@ -30,53 +33,50 @@
       background:linear-gradient(180deg,#2a3550,#1f2738);border:2px solid #39435a;box-shadow:0 6px 16px rgba(0,0,0,.5);transition:transform .04s linear}
     .label{text-align:center;margin-top:8px;font-size:14px;color:var(--muted)}
     .padbox{position:relative;width:100%;max-width:520px;aspect-ratio:16/10;margin:0 auto;background:linear-gradient(180deg,var(--bg2),#0f141d);
-      border:2px solid #2b3344;border-radius:12px;box-shadow:inset 0 0 18px rgba(0,0,0,.35);overflow:hidden;touch-action:none}
-    .padbox::after{content:"Touchpad";position:absolute;inset:8px auto auto 8px;font-size:12px;color:var(--muted);opacity:.8;pointer-events:none}
-    .dot{position:absolute;width:14px;height:14px;border-radius:50%;background:var(--accent);transform:translate(-50%,-50%);display:none;pointer-events:none;box-shadow:0 0 12px var(--accent)}
+      border:2px solid #2b3344;border-radius:12px;box-shadow:inset 0 0 18px rgba(0,0,0,.35);overflow:hidden;touch-action:none;display:flex;align-items:center;justify-content:center;padding:10px}
+    .padbox::after{content:"Draw symbol here (one stroke). Lift finger, wait 2s → matrix";position:absolute;inset:8px auto auto 8px;font-size:12px;color:var(--muted);opacity:.9;pointer-events:none}
+    /* Drawing canvas */
+    #draw{width:100%;height:100%;background:#ffffff;border-radius:8px;box-shadow:inset 0 0 6px rgba(0,0,0,.2);touch-action:none}
+    /* HUD / Matrix */
     #hud{position:fixed;left:12px;bottom:12px;z-index:10;width:min(92vw,440px);background:rgba(17,22,30,.9);border:1px solid #2b3344;border-radius:12px;
       padding:10px 12px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.25;display:none;white-space:pre;overflow:auto;max-height:52vh}
+    #matrixWrap{position:fixed;left:12px;bottom:12px;z-index:11;width:min(92vw,520px);background:rgba(17,22,30,.92);border:1px solid #2b3344;border-radius:12px;
+      padding:10px 12px;display:none;max-height:55vh;overflow:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.25}
+    #matrixWrap header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;color:#cfe1ff}
+    #matrix{white-space:pre}
     #hint{position:fixed;left:50%;top:56px;transform:translateX(-50%);background:#1b2332;color:#cfe1ff;border:1px solid #2b3344;padding:8px 12px;border-radius:10px}
     @media(max-width:820px){#controls{grid-template-columns:1fr}.padbox{max-width:95vw}}
     @media screen and (orientation:portrait){
       html,body{transform-origin:center center;transform:rotate(90deg);width:100vh;height:100vw}
       #wrap{width:100vh;height:100vw}
-      #fsBtn,#hudToggle,#copyBtn,#streamBtn,#hud,#hint{transform:rotate(-90deg)}
+      #fsBtn,#hudToggle,#copyBtn,#streamBtn,#clearBtn,#toggleMatrixBtn,#publishBtn,#hud,#hint,#matrixWrap{transform:rotate(-90deg)}
     }
   </style>
   <script>
     // Prevent iOS pinch/double-tap zoom
     document.addEventListener("gesturestart", e => e.preventDefault());
     let lastTouch = 0;
-    document.addEventListener("touchend", e => {
-      const now = Date.now();
-      if (now - lastTouch <= 300) e.preventDefault();
-      lastTouch = now;
-    }, { passive:false });
+    document.addEventListener("touchend", e => { const now = Date.now(); if (now - lastTouch <= 300) e.preventDefault(); lastTouch = now; }, { passive:false });
 
     function isFullscreen(){ return !!(document.fullscreenElement||document.webkitFullscreenElement||document.msFullscreenElement); }
-    async function enterFullscreen(){
-      const el=document.documentElement;
-      const req=el.requestFullscreen||el.webkitRequestFullscreen||el.msRequestFullscreen;
-      if(req) await req.call(el);
-      if(screen.orientation?.lock){ try{ await screen.orientation.lock("landscape"); }catch{} }
-    }
+    async function enterFullscreen(){ const el=document.documentElement; const req=el.requestFullscreen||el.webkitRequestFullscreen||el.msRequestFullscreen; if(req) await req.call(el); if(screen.orientation?.lock){ try{ await screen.orientation.lock("landscape"); }catch{} } }
     async function exitFullscreen(){ const ex=document.exitFullscreen||document.webkitExitFullscreen||document.msExitFullscreen; if(ex) await ex.call(document); }
-    async function toggleFullscreen(){
-      if(isFullscreen()) await exitFullscreen(); else await enterFullscreen();
-      document.getElementById("fsBtn").textContent = isFullscreen() ? "Exit Fullscreen" : "Fullscreen";
-    }
+    async function toggleFullscreen(){ if(isFullscreen()) await exitFullscreen(); else await enterFullscreen(); document.getElementById("fsBtn").textContent = isFullscreen() ? "Exit Fullscreen" : "Fullscreen"; }
   </script>
 </head>
 <body>
 <button id="hudToggle">HUD: Off</button>
-<button id="copyBtn">Copy JSON</button>
+<button id="copyBtn">Copy Matrix</button>
 <button id="streamBtn">Stream: Off</button>
+<button id="clearBtn">Clear</button>
+<button id="toggleMatrixBtn">Show Matrix</button>
+<button id="publishBtn">Publish: On</button>
 <button id="fsBtn" onclick="toggleFullscreen()">Fullscreen</button>
-<div id="hint">Standalone mode (no server). Use HUD/Copy/Stream to get outputs.</div>
+<div id="hint">Joysticks + Drawing. After lifting, wait 2s for matrix. Firebase publish is On by default.</div>
 
 <div id="wrap">
   <header>
-    <b>Standalone Game Pad</b> · No server required
+    <b>Game Pad + Symbol Matrix</b> · Room: <b id="roomLabel">demo</b>
   </header>
 
   <div id="controls">
@@ -86,12 +86,12 @@
       <div class="label">Move</div>
     </div>
 
-    <!-- Middle touchpad -->
+    <!-- Middle: DRAWING CANVAS -->
     <div>
-      <div class="padbox" id="touch">
-        <div class="dot" id="dot"></div>
+      <div class="padbox">
+        <canvas id="draw"></canvas>
       </div>
-      <div class="label">Touchpad (tap/drag)</div>
+      <div class="label">Draw symbol (one stroke)</div>
     </div>
 
     <!-- Right joystick (LOOK) -->
@@ -102,17 +102,59 @@
   </div>
 
   <footer>
-    <small>Tip: Toggle “Stream” to print outputs to the browser console. “Copy JSON” copies the current payload.</small>
+    <small>MATRIX_SIZE=64 (change in code). Matrix is grayscale 0..255 (white→black). Joystick + matrix publish to Firebase on change.</small>
   </footer>
 </div>
 
 <pre id="hud"></pre>
 
+<!-- Matrix output panel -->
+<div id="matrixWrap">
+  <header>
+    <div>Grayscale Matrix Output</div>
+    <div id="meta" style="font-size:12px;opacity:.8;"></div>
+  </header>
+  <div id="matrix"></div>
+</div>
+
 <script>
+  // ================= CONFIG =================
+  const MATRIX_SIZE   = 64;           // change to 28, 96, etc.
+  const PEN_WIDTH     = 18;           // stroke thickness (visual; auto-scales for DPR)
+  const PEN_COLOR     = "#000000";    // black ink on white bg
+  const INACTIVITY_MS = 2000;         // 2s after lifting finger
+
+  // ---- Firebase REST (no SDK) ----
+  // TODO: REPLACE WITH YOUR REALTIME DATABASE URL:
+  const DB_URL = "https://YOUR-PROJECT-ID-default-rtdb.firebaseio.com";
+  const ROOM   = new URLSearchParams(location.search).get("room") || "demo";
+  document.getElementById("roomLabel").textContent = ROOM;
+  let publishOn = true;
+
+  const PAD_URL  = `${DB_URL}/rooms/${ROOM}/pad.json`;
+  const DRAW_URL = `${DB_URL}/rooms/${ROOM}/draw.json`;
+
+  async function putJSON(url, data){
+    if (!publishOn) return;
+    try{
+      await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type":"application/json" },
+        body: JSON.stringify(data)
+      });
+    }catch(e){
+      // console.warn("PUT failed:", e);
+    }
+  }
+
+  // ================= UI BUTTONS =================
   const hud = document.getElementById("hud");
   const hudToggle = document.getElementById("hudToggle");
   const copyBtn = document.getElementById("copyBtn");
   const streamBtn = document.getElementById("streamBtn");
+  const clearBtn = document.getElementById("clearBtn");
+  const toggleMatrixBtn = document.getElementById("toggleMatrixBtn");
+  const publishBtn = document.getElementById("publishBtn");
   const hint = document.getElementById("hint");
   setTimeout(()=>hint.remove(), 4000);
 
@@ -120,8 +162,9 @@
   let streamOn = false;
   hudToggle.onclick = () => { hudOn = !hudOn; hud.style.display = hudOn ? "block" : "none"; hudToggle.textContent = "HUD: " + (hudOn ? "On" : "Off"); };
   streamBtn.onclick = () => { streamOn = !streamOn; streamBtn.textContent = "Stream: " + (streamOn ? "On" : "Off"); };
+  publishBtn.onclick = () => { publishOn = !publishOn; publishBtn.textContent = "Publish: " + (publishOn ? "On" : "Off"); };
 
-  // --- Joystick helper ---
+  // ================= JOYSTICKS =================
   function makeStick(stickEl, knobEl) {
     const rectState = { w:0, h:0, cx:0, cy:0, r:0 };
     const axes = { x:0, y:0 };
@@ -164,94 +207,183 @@
     return () => ({ x:axes.x, y:axes.y });
   }
 
-  // Build sticks
   const getMove = makeStick(document.getElementById("stickL"), document.getElementById("knobL"));
   const getLook = makeStick(document.getElementById("stickR"), document.getElementById("knobR"));
 
-  // --- Touchpad (middle) ---
-  const touchBox = document.getElementById("touch");
-  const dot = document.getElementById("dot");
-  let pad = { u:0, v:0, phase:"idle" };
+  // ================= DRAWING → MATRIX =================
+  const canvas = document.getElementById("draw");
+  const ctx = canvas.getContext("2d", { willReadFrequently:true });
+  let W=0, H=0;
 
-  function boxUV(e){
-    const r = touchBox.getBoundingClientRect();
-    const u = (e.clientX - r.left) / r.width;
-    const v = (e.clientY - r.top)  / r.height;
-    return { u:Math.max(0,Math.min(1,u)), v:Math.max(0,Math.min(1,v)) };
+  function fitCanvas(){
+    const rect = canvas.getBoundingClientRect();
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    W = Math.max(1, Math.floor(rect.width * dpr));
+    H = Math.max(1, Math.floor(rect.height * dpr));
+    canvas.width = W; canvas.height = H;
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, W, H);
+    ctx.lineJoin = "round"; ctx.lineCap = "round";
+    ctx.strokeStyle = PEN_COLOR; ctx.lineWidth = PEN_WIDTH * dpr;
   }
-  function showDot(u,v){ dot.style.left=(u*100)+"%"; dot.style.top=(v*100)+"%"; dot.style.display="block"; }
-  function hideDot(){ dot.style.display="none"; }
+  window.addEventListener("resize", fitCanvas, { passive:true });
+  fitCanvas();
 
-  touchBox.addEventListener("pointerdown", e => {
-    touchBox.setPointerCapture(e.pointerId);
-    const {u,v} = boxUV(e);
-    pad = { u:+u.toFixed(3), v:+v.toFixed(3), phase:"start" };
-    showDot(u,v); navigator.vibrate?.(10);
-  });
-  touchBox.addEventListener("pointermove", e => {
-    if (dot.style.display !== "block") return;
-    const {u,v} = boxUV(e);
-    pad = { u:+u.toFixed(3), v:+v.toFixed(3), phase:"move" };
-    showDot(u,v);
-  });
-  function endTouch(){ pad={u:0,v:0,phase:"end"}; hideDot(); setTimeout(()=>{ pad.phase="idle"; },30); }
-  touchBox.addEventListener("pointerup", endTouch);
-  touchBox.addEventListener("pointercancel", endTouch);
-  touchBox.addEventListener("pointerleave", () => { if (dot.style.display==="block") endTouch(); });
+  let drawing = false;
+  let lastX = 0, lastY = 0;
+  let inactivityTimer = null;
+  let hasInk = false;
 
-  // --- Output handling ---
+  function stopInactivityTimer(){ if (inactivityTimer){ clearTimeout(inactivityTimer); inactivityTimer = null; } }
+  function startInactivityTimer(){
+    stopInactivityTimer();
+    inactivityTimer = setTimeout(() => {
+      if (hasInk){
+        const matrix = rasterizeToMatrix();
+        showMatrix(matrix);
+        // publish matrix to Firebase
+        putJSON(DRAW_URL, { size: MATRIX_SIZE, matrix, t: Date.now() });
+      }
+    }, INACTIVITY_MS);
+  }
+
+  function getPoint(e){
+    const t = e.touches ? e.touches[0] : e;
+    const rect = canvas.getBoundingClientRect();
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const x = (t.clientX - rect.left) * dpr;
+    const y = (t.clientY - rect.top)  * dpr;
+    return { x, y };
+  }
+
+  function beginDraw(e){
+    e.preventDefault();
+    stopInactivityTimer();
+    drawing = true; hasInk = true;
+    const p = getPoint(e);
+    lastX = p.x; lastY = p.y;
+  }
+  function moveDraw(e){
+    if (!drawing) return;
+    const p = getPoint(e);
+    ctx.beginPath();
+    ctx.moveTo(lastX, lastY);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+    lastX = p.x; lastY = p.y;
+  }
+  function endDraw(){
+    if (!drawing) return;
+    drawing = false;
+    startInactivityTimer();
+  }
+
+  canvas.addEventListener("pointerdown", beginDraw);
+  canvas.addEventListener("pointermove", moveDraw);
+  canvas.addEventListener("pointerup", endDraw);
+  canvas.addEventListener("pointercancel", endDraw);
+  canvas.addEventListener("pointerleave", () => drawing && endDraw());
+
+  function rasterizeToMatrix(){
+    const off = document.createElement("canvas");
+    off.width = MATRIX_SIZE; off.height = MATRIX_SIZE;
+    const octx = off.getContext("2d", { willReadFrequently:true });
+
+    octx.fillStyle = "#ffffff"; octx.fillRect(0, 0, MATRIX_SIZE, MATRIX_SIZE);
+    octx.imageSmoothingEnabled = true; octx.imageSmoothingQuality = "high";
+    octx.drawImage(canvas, 0, 0, W, H, 0, 0, MATRIX_SIZE, MATRIX_SIZE);
+
+    const img = octx.getImageData(0, 0, MATRIX_SIZE, MATRIX_SIZE).data;
+    const matrix = [];
+    for (let y = 0; y < MATRIX_SIZE; y++){
+      const row = [];
+      for (let x = 0; x < MATRIX_SIZE; x++){
+        const i = (y * MATRIX_SIZE + x) * 4;
+        const r = img[i], g = img[i+1], b = img[i+2];
+        const gray = Math.round(0.299*r + 0.587*g + 0.114*b); // 0..255
+        row.push(gray);
+      }
+      matrix.push(row);
+    }
+    return matrix;
+  }
+
+  const matrixWrap = document.getElementById("matrixWrap");
+  const matrixOut  = document.getElementById("matrix");
+  const metaEl     = document.getElementById("meta");
+
+  function showMatrix(mat){
+    matrixWrap.style.display = "block";
+    metaEl.textContent = `size=${mat.length}×${mat[0].length} • values=0..255 (white→black)`;
+    matrixOut.textContent = JSON.stringify(mat); // compact JSON
+  }
+
+  toggleMatrixBtn.onclick = () => {
+    matrixWrap.style.display = (matrixWrap.style.display === "none" || matrixWrap.style.display==="") ? "block" : "none";
+  };
+  copyBtn.onclick = async () => {
+    let text = matrixOut.textContent.trim();
+    if (!text){
+      const m = rasterizeToMatrix();
+      text = JSON.stringify(m);
+    }
+    try{
+      await navigator.clipboard.writeText(text);
+      const old = copyBtn.textContent; copyBtn.textContent = "Copied!"; setTimeout(()=>copyBtn.textContent=old, 900);
+    }catch(e){
+      alert("Copy failed. Browser blocked clipboard.");
+    }
+  };
+  clearBtn.onclick = () => {
+    stopInactivityTimer();
+    fitCanvas();
+    hasInk = false;
+    matrixOut.textContent = "";
+  };
+
+  // ================= OUTPUTS / HUD / FIREBASE =================
   function nearlyEqual(a,b,eps=1e-3){ return Math.abs(a-b) <= eps; }
-  let prevMove = {x:0,y:0}, prevLook = {x:0,y:0}, prevPad = {u:0,v:0,phase:"idle"};
+  let prevMove = {x:0,y:0}, prevLook = {x:0,y:0}, prevPadKey = ""; // padKey unused now
   let prevBundleKey = "";
+  let lastKeyForFirebase = "";
 
-  function currentPayload(mv,lk,pd){
+  function currentPayload(mv,lk){
     return {
       axes: [mv.x, mv.y],
       look: [lk.x, lk.y],
-      pad:  { u: pd.u, v: pd.v, phase: pd.phase },
+      // keep a small echo of drawing state for completeness
+      draw: { hasInk },
       t: Date.now()
     };
   }
 
-  function updateHUD(mv,lk,pd){
+  function updateHUD(mv,lk){
     if (!hudOn) return;
     hud.textContent =
 `<Gamepad Output>
 MOVE  : { x: ${mv.x.toFixed(3)}, y: ${mv.y.toFixed(3)} }
 LOOK  : { x: ${lk.x.toFixed(3)}, y: ${lk.y.toFixed(3)} }
-TOUCH : { u: ${pd.u?.toFixed?.(3) ?? 0}, v: ${pd.v?.toFixed?.(3) ?? 0}, phase: ${pd.phase} }`;
+DRAW  : { hasInk: ${hasInk} }`;
   }
 
-  // Copy current JSON snapshot
-  copyBtn.onclick = async () => {
-    const mv=getMove(), lk=getLook();
-    const data = currentPayload(mv, lk, pad);
-    try{
-      await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
-      copyBtn.textContent = "Copied!";
-      setTimeout(()=>copyBtn.textContent="Copy JSON", 900);
-    }catch(e){
-      alert("Copy failed. Check permissions.");
-    }
-  };
-
-  // --- Main loop (30 FPS), logs only on change if Stream is On ---
+  // 30 FPS loop (send to Firebase only on change)
   setInterval(() => {
     const mv = getMove(), lk = getLook();
-    const payload = currentPayload(mv, lk, pad);
+    const payload = currentPayload(mv, lk);
     const key = JSON.stringify(payload);
 
     if (key !== prevBundleKey && streamOn){
-      console.log(payload); // stream to console on change
+      console.log(payload);
       prevBundleKey = key;
     }
 
-    // track individual changes (not strictly needed without server, but handy)
-    if (!nearlyEqual(mv.x, prevMove.x) || !nearlyEqual(mv.y, prevMove.y)) prevMove = {...mv};
-    if (!nearlyEqual(lk.x, prevLook.x) || !nearlyEqual(lk.y, prevLook.y)) prevLook = {...lk};
-    if (pad.phase !== prevPad.phase || !nearlyEqual(pad.u, prevPad.u) || !nearlyEqual(pad.v, prevPad.v)) prevPad = {...pad};
+    // Publish joystick state to Firebase on change
+    if (key !== lastKeyForFirebase){
+      putJSON(PAD_URL, payload);
+      lastKeyForFirebase = key;
+    }
 
-    updateHUD(mv, lk, pad);
+    // Update HUD
+    updateHUD(mv, lk);
   }, 33);
 </script>
 </body>
