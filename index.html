@@ -35,9 +35,7 @@
     .padbox{position:relative;width:100%;max-width:520px;aspect-ratio:16/10;margin:0 auto;background:linear-gradient(180deg,var(--bg2),#0f141d);
       border:2px solid #2b3344;border-radius:12px;box-shadow:inset 0 0 18px rgba(0,0,0,.35);overflow:hidden;touch-action:none;display:flex;align-items:center;justify-content:center;padding:10px}
     .padbox::after{content:"Draw symbol here (one stroke). Lift finger, wait 2s → matrix";position:absolute;inset:8px auto auto 8px;font-size:12px;color:var(--muted);opacity:.9;pointer-events:none}
-    /* Drawing canvas */
     #draw{width:100%;height:100%;background:#ffffff;border-radius:8px;box-shadow:inset 0 0 6px rgba(0,0,0,.2);touch-action:none}
-    /* HUD / Matrix */
     #hud{position:fixed;left:12px;bottom:12px;z-index:10;width:min(92vw,440px);background:rgba(17,22,30,.9);border:1px solid #2b3344;border-radius:12px;
       padding:10px 12px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.25;display:none;white-space:pre;overflow:auto;max-height:52vh}
     #matrixWrap{position:fixed;left:12px;bottom:12px;z-index:11;width:min(92vw,520px);background:rgba(17,22,30,.92);border:1px solid #2b3344;border-radius:12px;
@@ -53,7 +51,6 @@
     }
   </style>
   <script>
-    // Prevent iOS pinch/double-tap zoom
     document.addEventListener("gesturestart", e => e.preventDefault());
     let lastTouch = 0;
     document.addEventListener("touchend", e => { const now = Date.now(); if (now - lastTouch <= 300) e.preventDefault(); lastTouch = now; }, { passive:false });
@@ -80,13 +77,11 @@
   </header>
 
   <div id="controls">
-    <!-- Left joystick (MOVE) -->
     <div>
       <div class="stick" id="stickL"><div class="knob" id="knobL"></div></div>
       <div class="label">Move</div>
     </div>
 
-    <!-- Middle: DRAWING CANVAS -->
     <div>
       <div class="padbox">
         <canvas id="draw"></canvas>
@@ -94,7 +89,6 @@
       <div class="label">Draw symbol (one stroke)</div>
     </div>
 
-    <!-- Right joystick (LOOK) -->
     <div>
       <div class="stick" id="stickR"><div class="knob" id="knobR"></div></div>
       <div class="label">Look</div>
@@ -108,7 +102,6 @@
 
 <pre id="hud"></pre>
 
-<!-- Matrix output panel -->
 <div id="matrixWrap">
   <header>
     <div>Grayscale Matrix Output</div>
@@ -119,14 +112,13 @@
 
 <script>
   // ================= CONFIG =================
-  const MATRIX_SIZE   = 64;           // change to 28, 96, etc.
-  const PEN_WIDTH     = 18;           // stroke thickness (visual; auto-scales for DPR)
-  const PEN_COLOR     = "#000000";    // black ink on white bg
-  const INACTIVITY_MS = 2000;         // 2s after lifting finger
+  const MATRIX_SIZE   = 64;
+  const PEN_WIDTH     = 18;
+  const PEN_COLOR     = "#000000";
+  const INACTIVITY_MS = 2000;
 
   // ---- Firebase REST (no SDK) ----
-  // TODO: REPLACE WITH YOUR REALTIME DATABASE URL:
-  const DB_URL = "https://gamepad-6aba1-default-rtdb.firebaseio.com";
+  const DB_URL = "https://gamepad-6aba1-default-rtdb.firebaseio.com"; // <- your URL
   const ROOM   = new URLSearchParams(location.search).get("room") || "demo";
   document.getElementById("roomLabel").textContent = ROOM;
   let publishOn = true;
@@ -137,14 +129,8 @@
   async function putJSON(url, data){
     if (!publishOn) return;
     try{
-      await fetch(url, {
-        method: "PUT",
-        headers: { "Content-Type":"application/json" },
-        body: JSON.stringify(data)
-      });
-    }catch(e){
-      // console.warn("PUT failed:", e);
-    }
+      await fetch(url, { method:"PUT", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(data) });
+    }catch(e){ /* ignore */ }
   }
 
   // ================= UI BUTTONS =================
@@ -228,6 +214,13 @@
   window.addEventListener("resize", fitCanvas, { passive:true });
   fitCanvas();
 
+  // Reusable clear function (also used after 2s inactivity)
+  function clearCanvas(){
+    fitCanvas();
+    hasInk = false;
+    matrixOut.textContent = ""; // keep panel open but clear content
+  }
+
   let drawing = false;
   let lastX = 0, lastY = 0;
   let inactivityTimer = null;
@@ -240,8 +233,9 @@
       if (hasInk){
         const matrix = rasterizeToMatrix();
         showMatrix(matrix);
-        // publish matrix to Firebase
+        // publish matrix to Firebase, then clear the drawing pad
         putJSON(DRAW_URL, { size: MATRIX_SIZE, matrix, t: Date.now() });
+        clearCanvas(); // <-- auto-clear after conversion/publish
       }
     }, INACTIVITY_MS);
   }
@@ -314,7 +308,7 @@
   function showMatrix(mat){
     matrixWrap.style.display = "block";
     metaEl.textContent = `size=${mat.length}×${mat[0].length} • values=0..255 (white→black)`;
-    matrixOut.textContent = JSON.stringify(mat); // compact JSON
+    matrixOut.textContent = JSON.stringify(mat);
   }
 
   toggleMatrixBtn.onclick = () => {
@@ -333,27 +327,14 @@
       alert("Copy failed. Browser blocked clipboard.");
     }
   };
-  clearBtn.onclick = () => {
-    stopInactivityTimer();
-    fitCanvas();
-    hasInk = false;
-    matrixOut.textContent = "";
-  };
+  clearBtn.onclick = clearCanvas;
 
   // ================= OUTPUTS / HUD / FIREBASE =================
   function nearlyEqual(a,b,eps=1e-3){ return Math.abs(a-b) <= eps; }
-  let prevMove = {x:0,y:0}, prevLook = {x:0,y:0}, prevPadKey = ""; // padKey unused now
-  let prevBundleKey = "";
-  let lastKeyForFirebase = "";
+  let prevMove = {x:0,y:0}, prevLook = {x:0,y:0}, prevBundleKey = "", lastKeyForFirebase = "";
 
   function currentPayload(mv,lk){
-    return {
-      axes: [mv.x, mv.y],
-      look: [lk.x, lk.y],
-      // keep a small echo of drawing state for completeness
-      draw: { hasInk },
-      t: Date.now()
-    };
+    return { axes:[mv.x, mv.y], look:[lk.x, lk.y], draw:{hasInk}, t: Date.now() };
   }
 
   function updateHUD(mv,lk){
@@ -365,27 +346,15 @@ LOOK  : { x: ${lk.x.toFixed(3)}, y: ${lk.y.toFixed(3)} }
 DRAW  : { hasInk: ${hasInk} }`;
   }
 
-  // 30 FPS loop (send to Firebase only on change)
   setInterval(() => {
     const mv = getMove(), lk = getLook();
     const payload = currentPayload(mv, lk);
     const key = JSON.stringify(payload);
 
-    if (key !== prevBundleKey && streamOn){
-      console.log(payload);
-      prevBundleKey = key;
-    }
-
-    // Publish joystick state to Firebase on change
-    if (key !== lastKeyForFirebase){
-      putJSON(PAD_URL, payload);
-      lastKeyForFirebase = key;
-    }
-
-    // Update HUD
+    if (key !== prevBundleKey && streamOn){ console.log(payload); prevBundleKey = key; }
+    if (key !== lastKeyForFirebase){ putJSON(PAD_URL, payload); lastKeyForFirebase = key; }
     updateHUD(mv, lk);
   }, 33);
 </script>
 </body>
 </html>
-
