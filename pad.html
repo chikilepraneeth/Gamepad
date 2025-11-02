@@ -1,0 +1,197 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Dataset Collector Pad</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <style>
+    :root{--bg:#0f1115;--bg2:#161a22;--fg:#e8eefc;--muted:#8fa0bf;--accent:#4cc3ff;--danger:#ff6b6b}
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,Segoe UI,Roboto,sans-serif;overflow:hidden;touch-action:none;user-select:none}
+    #wrap{display:grid;grid-template-rows:auto 1fr auto;height:100%;gap:8px}
+    header,footer{padding:10px 12px;text-align:center;color:var(--muted)}
+    header b{color:var(--fg)}
+    .topbar{position:fixed;top:8px;left:12px;right:12px;z-index:10;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .chip{background:#1b2332;border:1px solid #2b3344;border-radius:10px;padding:8px 10px;font-size:13px}
+    .chip input,.chip select{background:transparent;border:none;color:#e8eefc;outline:none}
+    .btn{background:#1b2332;color:#e8eefc;border:1px solid #2b3344;border-radius:10px;padding:8px 12px;font-size:13px}
+    .btn:active{transform:scale(.98)}
+    #controls{display:grid;grid-template-columns:1fr 1.2fr 1fr;gap:12px;padding:8px 12px 14px;align-items:center;height:100%}
+    .stick{position:relative;width:100%;max-width:300px;aspect-ratio:1/1;margin:0 auto;border-radius:50%;
+      background:radial-gradient(85% 85% at 50% 50%,#1c2330,#121722);border:2px solid #2b3344;box-shadow:inset 0 0 20px rgba(0,0,0,.35);touch-action:none}
+    .knob{position:absolute;width:36%;aspect-ratio:1/1;border-radius:50%;left:32%;top:32%;
+      background:linear-gradient(180deg,#2a3550,#1f2738);border:2px solid #39435a;box-shadow:0 6px 16px rgba(0,0,0,.5);transition:transform .04s linear}
+    .label{text-align:center;margin-top:8px;font-size:14px;color:var(--muted)}
+    .padbox{position:relative;width:100%;max-width:520px;aspect-ratio:16/10;margin:0 auto;background:linear-gradient(180deg,var(--bg2),#0f141d);
+      border:2px solid #2b3344;border-radius:12px;box-shadow:inset 0 0 18px rgba(0,0,0,.35);overflow:hidden;touch-action:none;display:flex;align-items:center;justify-content:center;padding:10px}
+    .padbox::after{content:"Draw symbol (one stroke). Lift, wait 1s → submit";position:absolute;inset:8px auto auto 8px;font-size:12px;color:var(--muted)}
+    #draw{width:100%;height:100%;background:#ffffff;border-radius:8px;box-shadow:inset 0 0 6px rgba(0,0,0,.2);touch-action:none}
+    #toast{position:fixed;left:50%;top:56px;transform:translateX(-50%);background:#1b2332;color:#cfe1ff;border:1px solid #2b3344;padding:8px 12px;border-radius:10px;z-index:9999;opacity:0;transition:opacity .15s}
+    @media(max-width:820px){#controls{grid-template-columns:1fr}.padbox{max-width:95vw}}
+    @media screen and (orientation:portrait){
+      html,body{transform-origin:center center;transform:rotate(90deg);width:100vh;height:100vw}
+      #wrap{width:100vh;height:100vw}
+      .topbar,#toast{transform:rotate(-90deg)}
+    }
+  </style>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+</head>
+<body>
+<div class="topbar">
+  <span class="chip">Room: <b id="roomLabel">demo</b></span>
+  <span class="chip">User: <b id="userLabel">-</b></span>
+  <span class="chip">Sample #: <b id="sampleIdx">1</b></span>
+  <span class="chip">Label:
+    <select id="label">
+      <option value="triangle">triangle</option>
+      <option value="square">square</option>
+      <option value="circle">circle</option>
+      <option value="star">star</option>
+      <option value="custom">custom…</option>
+    </select>
+    <input id="labelCustom" placeholder="type label" style="display:none;width:110px">
+  </span>
+  <button class="btn" id="togglePublish">Publish: On</button>
+  <button class="btn" id="clearBtn">Clear</button>
+</div>
+
+<div id="wrap">
+  <header><b>Dataset Collector</b> · Draw and release to submit</header>
+
+  <div id="controls">
+    <div>
+      <div class="stick" id="stickL"><div class="knob" id="knobL"></div></div>
+      <div class="label">Move</div>
+    </div>
+
+    <div>
+      <div class="padbox">
+        <canvas id="draw"></canvas>
+      </div>
+      <div class="label">Drawing Pad</div>
+    </div>
+
+    <div>
+      <div class="stick" id="stickR"><div class="knob" id="knobR"></div></div>
+      <div class="label">Look</div>
+    </div>
+  </div>
+
+  <footer><small>Max 10 users per room. Each submission saves PNG + metadata on the server.</small></footer>
+</div>
+
+<div id="toast"></div>
+
+<script>
+  // ========= Config =========
+  const SOCKET_SERVER_URL = "http://172.21.148.103:3000"; // ⬅️ change to your server URL when deployed
+  const INACTIVITY_MS = 1000; // wait after finger lift before capture
+
+  // ========= Room & User =========
+  const qs = new URLSearchParams(location.search);
+  const ROOM = qs.get("room") || "demo";
+  document.getElementById("roomLabel").textContent = ROOM;
+
+  function getOrCreateUserId(){
+    const key = "dataset_user_id_v1";
+    let id = localStorage.getItem(key);
+    if (!id){
+      id = Math.random().toString(36).slice(2, 8); // 6-char code
+      localStorage.setItem(key, id);
+    }
+    return id;
+  }
+  const USER_ID = getOrCreateUserId();
+  document.getElementById("userLabel").textContent = USER_ID;
+
+  // Label UI
+  const labelSel = document.getElementById("label");
+  const labelCustom = document.getElementById("labelCustom");
+  let currentLabel = qs.get("label") || labelSel.value;
+  labelSel.value = ["triangle","square","circle","star"].includes(currentLabel) ? currentLabel : "custom";
+  labelCustom.style.display = (labelSel.value === "custom") ? "inline-block" : "none";
+  if (labelSel.value === "custom") labelCustom.value = currentLabel;
+  labelSel.onchange = () => { if (labelSel.value === "custom"){ labelCustom.style.display="inline-block"; labelCustom.focus(); } else { labelCustom.style.display="none"; currentLabel=labelSel.value; } };
+  labelCustom.oninput = () => { currentLabel = labelCustom.value.trim() || "custom"; };
+
+  // ========= Socket.IO =========
+  const socket = io(SOCKET_SERVER_URL, { transports:["websocket"], forceNew:true });
+  let publishOn = true;
+  let myIndex = Number(localStorage.getItem("sampleIndex_"+ROOM+"_"+USER_ID) || "1");
+  document.getElementById("sampleIdx").textContent = String(myIndex);
+  document.getElementById("togglePublish").onclick = () => {
+    publishOn = !publishOn;
+    document.getElementById("togglePublish").textContent = "Publish: " + (publishOn ? "On" : "Off");
+  };
+
+  socket.on("connect", () => {
+    socket.emit("join", { room: ROOM, userId: USER_ID }, (ack) => {
+      if (ack?.ok) toast(`Joined ${ROOM} (${ack.count}/10)`); else toast(ack?.error || "Room full", true);
+    });
+  });
+  socket.on("room_update", (info) => { /* optional: show count */ });
+
+  // ========= Joysticks (optional movement/look) =========
+  function makeStick(stickEl, knobEl) {
+    const rectState = { w:0, h:0, cx:0, cy:0, r:0 };
+    const axes = { x:0, y:0 };
+    let dragging = false;
+    function cacheRect(){ const r=stickEl.getBoundingClientRect(); rectState.w=r.width; rectState.h=r.height; rectState.cx=r.left+r.width/2; rectState.cy=r.top+r.height/2; rectState.r=Math.min(r.width,r.height)*0.5*0.9; }
+    const center=()=>{ knobEl.style.left="32%"; knobEl.style.top="32%"; axes.x=0; axes.y=0; };
+    function setKnob(px,py){
+      const dx=px-rectState.cx, dy=py-rectState.cy; const mag=Math.hypot(dx,dy), cl=mag>rectState.r?rectState.r/mag:1;
+      const cx=dx*cl, cy=dy*cl; const lx=(cx/rectState.w*100)+50; const ly=(cy/rectState.h*100)+50;
+      knobEl.style.left=`calc(${lx}% - 18%)`; knobEl.style.top=`calc(${ly}% - 18%)`;
+      const dead=0.05; let nx=cx/rectState.r, ny=-cy/rectState.r; if(Math.abs(nx)<dead)nx=0; if(Math.abs(ny)<dead)ny=0; axes.x=+nx.toFixed(3); axes.y=+ny.toFixed(3);
+    }
+    stickEl.addEventListener("pointerdown", e=>{ cacheRect(); dragging=true; stickEl.setPointerCapture(e.pointerId); setKnob(e.clientX,e.clientY); });
+    stickEl.addEventListener("pointermove", e=>{ if(dragging) setKnob(e.clientX,e.clientY); });
+    function end(){ dragging=false; center(); }
+    stickEl.addEventListener("pointerup", end); stickEl.addEventListener("pointercancel", end); stickEl.addEventListener("pointerleave", ()=>dragging&&end());
+    window.addEventListener("resize", cacheRect, { passive:true }); center(); return ()=>({x:axes.x,y:axes.y});
+  }
+  const getMove = makeStick(document.getElementById("stickL"), document.getElementById("knobL"));
+  const getLook = makeStick(document.getElementById("stickR"), document.getElementById("knobR"));
+
+  // ========= Drawing & capture =========
+  const canvas = document.getElementById("draw");
+  const ctx = canvas.getContext("2d", { willReadFrequently:true });
+  let W=0, H=0;
+  function fitCanvas(){ const rect=canvas.getBoundingClientRect(); const dpr=Math.max(1,window.devicePixelRatio||1);
+    W=Math.max(1,Math.floor(rect.width*dpr)); H=Math.max(1,Math.floor(rect.height*dpr));
+    canvas.width=W; canvas.height=H; ctx.fillStyle="#fff"; ctx.fillRect(0,0,W,H);
+    ctx.lineJoin="round"; ctx.lineCap="round"; ctx.strokeStyle="#000"; ctx.lineWidth=18*Math.max(1,window.devicePixelRatio||1);
+  }
+  window.addEventListener("resize", fitCanvas, { passive:true }); fitCanvas();
+
+  function canvasToPNGDataURL(){ return canvas.toDataURL("image/png"); }
+  function clearCanvas(){ fitCanvas(); }
+  function toast(msg,bad){ const t=document.getElementById('toast'); t.textContent=msg; t.style.borderColor=bad?'#ff6b6b':'#2b3344'; t.style.opacity=1; setTimeout(()=>t.style.opacity=0,900); }
+
+  let drawing=false, lastX=0, lastY=0, idleTimer=null, hasInk=false;
+  function stopIdle(){ if(idleTimer){ clearTimeout(idleTimer); idleTimer=null; } }
+  function startIdle(){ stopIdle(); idleTimer=setTimeout(async ()=>{ if(hasInk){ const png=canvasToPNGDataURL(); await submitSample(png); clearCanvas(); hasInk=false; toast("Captured ✓"); } }, INACTIVITY_MS); }
+  function pt(e){ const t=e.touches?e.touches[0]:e; const r=canvas.getBoundingClientRect(); const dpr=Math.max(1,window.devicePixelRatio||1); return { x:(t.clientX-r.left)*dpr, y:(t.clientY-r.top)*dpr }; }
+  function begin(e){ e.preventDefault(); stopIdle(); drawing=true; hasInk=true; const p=pt(e); lastX=p.x; lastY=p.y; }
+  function move(e){ if(!drawing)return; const p=pt(e); ctx.beginPath(); ctx.moveTo(lastX,lastY); ctx.lineTo(p.x,p.y); ctx.stroke(); lastX=p.x; lastY=p.y; }
+  function end(){ if(!drawing)return; drawing=false; startIdle(); }
+  canvas.addEventListener("pointerdown", begin); canvas.addEventListener("pointermove", move); canvas.addEventListener("pointerup", end);
+  canvas.addEventListener("pointercancel", end); canvas.addEventListener("pointerleave", ()=>drawing&&end());
+
+  // ========= Submit to server =========
+  async function submitSample(pngDataURL){
+    if(!publishOn) return;
+    const label = (labelSel.value==="custom") ? (labelCustom.value.trim()||"custom") : labelSel.value;
+    const payload = { room: ROOM, userId: USER_ID, index: myIndex, label, ts: Date.now(), size:{w:W,h:H}, image: pngDataURL };
+    socket.emit("sample", payload, (ack)=>{
+      if (ack?.ok){
+        myIndex += 1; localStorage.setItem("sampleIndex_"+ROOM+"_"+USER_ID, String(myIndex));
+        document.getElementById("sampleIdx").textContent = String(myIndex);
+      } else { toast(ack?.error || "Submit failed", true); }
+    });
+  }
+
+  document.getElementById("clearBtn").onclick = clearCanvas;
+</script>
+</body>
+</html>
