@@ -1,0 +1,19 @@
+{
+  "name": "webgame",
+  "version": "1.0.0",
+  "description": "Real-time Dataset Collector Server",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "csv-writer": "^1.6.0",
+    "express": "^5.1.0",
+    "socket.io": "^4.8.1"
+  }
+}
