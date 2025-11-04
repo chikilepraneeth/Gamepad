@@ -34,7 +34,8 @@
       .topbar,#toast{transform:rotate(-90deg)}
     }
   </style>
-  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+  <!-- Same-origin Socket.IO (served by the server) -->
+  <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
 <div class="topbar">
@@ -84,7 +85,6 @@
 
 <script>
   // ========= Config =========
-  const SOCKET_SERVER_URL = "https://tristen-raviney-nonaffectingly.ngrok-free.dev/"; // ⬅️ change to your server URL when deployed
   const INACTIVITY_MS = 1000; // wait after finger lift before capture
 
   // ========= Room & User =========
@@ -114,8 +114,8 @@
   labelSel.onchange = () => { if (labelSel.value === "custom"){ labelCustom.style.display="inline-block"; labelCustom.focus(); } else { labelCustom.style.display="none"; currentLabel=labelSel.value; } };
   labelCustom.oninput = () => { currentLabel = labelCustom.value.trim() || "custom"; };
 
-  // ========= Socket.IO =========
-  const socket = io(SOCKET_SERVER_URL, { transports:["websocket"], forceNew:true });
+  // ========= Socket.IO (same-origin) =========
+  const socket = io(); // same domain as this page
   let publishOn = true;
   let myIndex = Number(localStorage.getItem("sampleIndex_"+ROOM+"_"+USER_ID) || "1");
   document.getElementById("sampleIdx").textContent = String(myIndex);
@@ -126,12 +126,11 @@
 
   socket.on("connect", () => {
     socket.emit("join", { room: ROOM, userId: USER_ID }, (ack) => {
-      if (ack?.ok) toast(`Joined ${ROOM} (${ack.count}/10)`); else toast(ack?.error || "Room full", true);
+      if (!(ack?.ok)) toast(ack?.error || "Join failed", true);
     });
   });
-  socket.on("room_update", (info) => { /* optional: show count */ });
 
-  // ========= Joysticks (optional movement/look) =========
+  // ========= Joysticks (optional) =========
   function makeStick(stickEl, knobEl) {
     const rectState = { w:0, h:0, cx:0, cy:0, r:0 };
     const axes = { x:0, y:0 };
@@ -166,11 +165,21 @@
 
   function canvasToPNGDataURL(){ return canvas.toDataURL("image/png"); }
   function clearCanvas(){ fitCanvas(); }
-  function toast(msg,bad){ const t=document.getElementById('toast'); t.textContent=msg; t.style.borderColor=bad?'#ff6b6b':'#2b3344'; t.style.opacity=1; setTimeout(()=>t.style.opacity=0,900); }
+  function toast(msg,bad){ const t=document.getElementById('toast'); t.textContent=msg; t.style.borderColor=bad?'#ff6b6b':'#2b3344'; t.style.opacity=1; setTimeout(()=>t.style.opacity=0,1200); }
 
   let drawing=false, lastX=0, lastY=0, idleTimer=null, hasInk=false;
   function stopIdle(){ if(idleTimer){ clearTimeout(idleTimer); idleTimer=null; } }
-  function startIdle(){ stopIdle(); idleTimer=setTimeout(async ()=>{ if(hasInk){ const png=canvasToPNGDataURL(); await submitSample(png); clearCanvas(); hasInk=false; toast("Captured ✓"); } }, INACTIVITY_MS); }
+  function startIdle(){
+    stopIdle();
+    idleTimer=setTimeout(async ()=>{
+      if(hasInk){
+        const png=canvasToPNGDataURL();
+        await submitSample(png); // success toast happens in ack
+        clearCanvas();
+        hasInk=false;
+      }
+    }, INACTIVITY_MS);
+  }
   function pt(e){ const t=e.touches?e.touches[0]:e; const r=canvas.getBoundingClientRect(); const dpr=Math.max(1,window.devicePixelRatio||1); return { x:(t.clientX-r.left)*dpr, y:(t.clientY-r.top)*dpr }; }
   function begin(e){ e.preventDefault(); stopIdle(); drawing=true; hasInk=true; const p=pt(e); lastX=p.x; lastY=p.y; }
   function move(e){ if(!drawing)return; const p=pt(e); ctx.beginPath(); ctx.moveTo(lastX,lastY); ctx.lineTo(p.x,p.y); ctx.stroke(); lastX=p.x; lastY=p.y; }
@@ -178,16 +187,20 @@
   canvas.addEventListener("pointerdown", begin); canvas.addEventListener("pointermove", move); canvas.addEventListener("pointerup", end);
   canvas.addEventListener("pointercancel", end); canvas.addEventListener("pointerleave", ()=>drawing&&end());
 
-  // ========= Submit to server =========
+  // ========= Submit to server (show toast only on server success) =========
   async function submitSample(pngDataURL){
     if(!publishOn) return;
     const label = (labelSel.value==="custom") ? (labelCustom.value.trim()||"custom") : labelSel.value;
     const payload = { room: ROOM, userId: USER_ID, index: myIndex, label, ts: Date.now(), size:{w:W,h:H}, image: pngDataURL };
     socket.emit("sample", payload, (ack)=>{
       if (ack?.ok){
-        myIndex += 1; localStorage.setItem("sampleIndex_"+ROOM+"_"+USER_ID, String(myIndex));
+        myIndex += 1;
+        localStorage.setItem("sampleIndex_"+ROOM+"_"+USER_ID, String(myIndex));
         document.getElementById("sampleIdx").textContent = String(myIndex);
-      } else { toast(ack?.error || "Submit failed", true); }
+        toast("Saved ✓");
+      } else {
+        toast(ack?.error || "Submit failed", true);
+      }
     });
   }
 
