@@ -49,6 +49,18 @@
       #wrap{width:100vh;height:100vw}
       #fsBtn,#hudToggle,#copyBtn,#streamBtn,#clearBtn,#toggleMatrixBtn,#publishBtn,#hud,#hint,#matrixWrap{transform:rotate(-90deg)}
     }
+
+    /* --- LOOK TRACKPAD --- */
+    .touchpad{
+      position:relative;width:100%;max-width:300px;aspect-ratio:1/1;margin:0 auto;border-radius:10px;
+      background:linear-gradient(180deg,#141a24,#0f141d);
+      border:2px solid #2b3344;box-shadow:inset 0 0 18px rgba(0,0,0,.35);
+      overflow:hidden;touch-action:none;
+    }
+    .touchpad::after{
+      content:"Drag to rotate"; position:absolute; left:8px; top:8px; font-size:12px;
+      color:var(--muted); opacity:.85; pointer-events:none;
+    }
   </style>
   <script>
     document.addEventListener("gesturestart", e => e.preventDefault());
@@ -77,11 +89,13 @@
   </header>
 
   <div id="controls">
+    <!-- LEFT: MOVE STICK -->
     <div>
       <div class="stick" id="stickL"><div class="knob" id="knobL"></div></div>
       <div class="label">Move</div>
     </div>
 
+    <!-- CENTER: DRAW PAD -->
     <div>
       <div class="padbox">
         <canvas id="draw"></canvas>
@@ -89,9 +103,10 @@
       <div class="label">Draw symbol (one stroke)</div>
     </div>
 
+    <!-- RIGHT: LOOK TRACKPAD (replaces right stick) -->
     <div>
-      <div class="stick" id="stickR"><div class="knob" id="knobR"></div></div>
-      <div class="label">Look</div>
+      <div class="touchpad" id="lookPad"></div>
+      <div class="label">Look (trackpad)</div>
     </div>
   </div>
 
@@ -150,7 +165,7 @@
   streamBtn.onclick = () => { streamOn = !streamOn; streamBtn.textContent = "Stream: " + (streamOn ? "On" : "Off"); };
   publishBtn.onclick = () => { publishOn = !publishOn; publishBtn.textContent = "Publish: " + (publishOn ? "On" : "Off"); };
 
-  // ================= JOYSTICKS =================
+  // ================= JOYSTICK (MOVE) =================
   function makeStick(stickEl, knobEl) {
     const rectState = { w:0, h:0, cx:0, cy:0, r:0 };
     const axes = { x:0, y:0 };
@@ -193,8 +208,81 @@
     return () => ({ x:axes.x, y:axes.y });
   }
 
+  // ================= LOOK TRACKPAD (relative deltas) =================
+  const LOOK_SENS  = 1.2;  // higher = faster look per drag
+  const LOOK_DECAY = 12;   // how fast it eases to 0 after release
+  const LOOK_CLAMP = 1.0;  // clamp per-frame output to [-1,1]
+
+  function makeLookPad(padEl){
+    let w=1, h=1, active=false, lastX=0, lastY=0;
+    let vx=0, vy=0;   // current output in [-1..1]
+    let lastT = performance.now();
+
+    function cacheRect(){
+      const r = padEl.getBoundingClientRect();
+      w = Math.max(1, r.width); h = Math.max(1, r.height);
+    }
+    window.addEventListener("resize", cacheRect, { passive:true });
+    cacheRect();
+
+    function onDown(e){
+      padEl.setPointerCapture?.(e.pointerId);
+      active = true;
+      const t = e.touches ? e.touches[0] : e;
+      lastX = t.clientX; lastY = t.clientY;
+      lastT = performance.now();
+    }
+    function onMove(e){
+      if(!active) return;
+      const t = e.touches ? e.touches[0] : e;
+      const now = performance.now();
+      const dt  = Math.max(0.001, (now - lastT)/1000);
+
+      const dx = t.clientX - lastX;
+      const dy = t.clientY - lastY;
+
+      let nx = (dx / w) * LOOK_SENS / dt;
+      let ny = (dy / h) * LOOK_SENS / dt;
+
+      nx = Math.max(-LOOK_CLAMP, Math.min(LOOK_CLAMP, nx));
+      ny = Math.max(-LOOK_CLAMP, Math.min(LOOK_CLAMP, ny));
+
+      const a = 0.35; // low-pass smoothing
+      vx = vx*(1-a) + nx*a;
+      vy = vy*(1-a) + ny*a;
+
+      lastX = t.clientX; lastY = t.clientY; lastT = now;
+    }
+    function onUp(){
+      active = false;
+    }
+
+    padEl.addEventListener("pointerdown", onDown);
+    padEl.addEventListener("pointermove", onMove);
+    padEl.addEventListener("pointerup", onUp);
+    padEl.addEventListener("pointercancel", onUp);
+    padEl.addEventListener("pointerleave", () => active && onUp());
+
+    // decay toward zero when not moving
+    function tick(){
+      const dt = Math.max(0.001, (performance.now()-lastT)/1000);
+      const decay = Math.exp(-LOOK_DECAY*dt);
+      if(!active){
+        vx *= decay;
+        vy *= decay;
+        if (Math.abs(vx) < 0.001) vx = 0;
+        if (Math.abs(vy) < 0.001) vy = 0;
+      }
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+
+    // Return {x,y} in [-1..1]; invert Y so drag up = look up
+    return () => ({ x: vx, y: -vy });
+  }
+
   const getMove = makeStick(document.getElementById("stickL"), document.getElementById("knobL"));
-  const getLook = makeStick(document.getElementById("stickR"), document.getElementById("knobR"));
+  const getLook = makeLookPad(document.getElementById("lookPad"));
 
   // ================= DRAWING → MATRIX =================
   const canvas = document.getElementById("draw");
@@ -214,11 +302,10 @@
   window.addEventListener("resize", fitCanvas, { passive:true });
   fitCanvas();
 
-  // Reusable clear function (also used after 2s inactivity)
   function clearCanvas(){
     fitCanvas();
     hasInk = false;
-    matrixOut.textContent = ""; // keep panel open but clear content
+    matrixOut.textContent = "";
   }
 
   let drawing = false;
@@ -233,9 +320,8 @@
       if (hasInk){
         const matrix = rasterizeToMatrix();
         showMatrix(matrix);
-        // publish matrix to Firebase, then clear the drawing pad
         putJSON(DRAW_URL, { size: MATRIX_SIZE, matrix, t: Date.now() });
-        clearCanvas(); // <-- auto-clear after conversion/publish
+        clearCanvas();
       }
     }, INACTIVITY_MS);
   }
@@ -293,7 +379,7 @@
       for (let x = 0; x < MATRIX_SIZE; x++){
         const i = (y * MATRIX_SIZE + x) * 4;
         const r = img[i], g = img[i+1], b = img[i+2];
-        const gray = Math.round(0.299*r + 0.587*g + 0.114*b); // 0..255
+        const gray = Math.round(0.299*r + 0.587*g + 0.114*b);
         row.push(gray);
       }
       matrix.push(row);
@@ -331,7 +417,7 @@
 
   // ================= OUTPUTS / HUD / FIREBASE =================
   function nearlyEqual(a,b,eps=1e-3){ return Math.abs(a-b) <= eps; }
-  let prevMove = {x:0,y:0}, prevLook = {x:0,y:0}, prevBundleKey = "", lastKeyForFirebase = "";
+  let prevBundleKey = "", lastKeyForFirebase = "";
 
   function currentPayload(mv,lk){
     return { axes:[mv.x, mv.y], look:[lk.x, lk.y], draw:{hasInk}, t: Date.now() };
