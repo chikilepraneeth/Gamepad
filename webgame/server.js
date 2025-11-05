@@ -252,7 +252,7 @@ io.on("connection", (socket) => {
     try{
       if (!room || !userId) return ack?.({ ok:false, error:"Missing room/userId" });
       const set = ensureRoom(room);
-      if (set.size >= 10) return ack?.({ ok:false, error:"Room full (max 10)" });
+      if (set.size >= 100) return ack?.({ ok:false, error:"Room full (max 10)" });
       set.add(userId);
       joinedRoom = room; joinedUser = userId;
       socket.join(room);
@@ -316,3 +316,4 @@ server.listen(PORT, HOST, () => {
   console.log(`👀 View rows at:   http://${HOST}:${PORT}/dataset`);
   console.log(`🧩 JSON endpoint:  http://${HOST}:${PORT}/dataset.json`);
 });
+
