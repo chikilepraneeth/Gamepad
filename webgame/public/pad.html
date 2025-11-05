@@ -12,17 +12,14 @@
   <style>
     :root{
       --bg:#0f1115;--bg2:#161a22;--fg:#e8eefc;--muted:#8fa0bf;--accent:#4cc3ff;--danger:#ff6b6b;
-      /* Use a single variable to control app height across devices */
-      --app-vh: 100svh;
+      --app-vh: 100svh; /* stable mobile height */
     }
-    /* Prefer dvh when available */
     @supports (height: 100dvh){
       :root{ --app-vh: 100dvh; }
     }
 
     *{box-sizing:border-box}
 
-    /* Use the variable for robust mobile height handling */
     html,body{
       height: var(--app-vh);
       margin:0;
@@ -66,23 +63,14 @@
     /* Fixed intrinsic pixels for consistent dataset; CSS scales this visually */
     #draw{width:100%;height:100%;background:#ffffff;border-radius:8px;box-shadow:inset 0 0 6px rgba(0,0,0,.2);touch-action:none;image-rendering:pixelated}
 
-    #hud{position:fixed;left:12px;bottom:calc(env(safe-area-inset-bottom, 0px) + 12px);z-index:10;width:min(92vw,440px);background:rgba(17,22,30,.9);border:1px solid #2b3344;border-radius:12px;
-      padding:10px 12px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.25;display:none;white-space:pre;overflow:auto;max-height:52vh}
+    /* Removed HUD, Matrix, Toast, and Fullscreen styles */
 
-    #matrixWrap{position:fixed;left:12px;bottom:calc(env(safe-area-inset-bottom, 0px) + 12px);z-index:11;width:min(92vw,520px);background:rgba(17,22,30,.92);border:1px solid #2b3344;border-radius:12px;
-      padding:10px 12px;display:none;max-height:55vh;overflow:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.25}
-    #matrixWrap header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;color:#cfe1ff}
-    #matrix{white-space:pre}
-
-    #fsBtn{position:fixed;right:12px;top:calc(env(safe-area-inset-top, 0px) + 8px);z-index:10}
     #vals{position:fixed;right:12px;bottom:calc(env(safe-area-inset-bottom, 0px) + 12px);z-index:10;background:rgba(17,22,30,.9);border:1px solid #2b3344;border-radius:10px;padding:8px 10px;font:12px ui-monospace,Menlo,Consolas}
-    #toast{position:fixed;left:50%;top:56px;transform:translateX(-50%);background:#1b2332;color:#cfe1ff;border:1px solid #2b3344;padding:8px 12px;border-radius:10px;z-index:9999;opacity:0;transition:opacity .15s}
   </style>
 
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
 </head>
 <body>
-<button id="fsBtn" class="btn">Fullscreen</button>
 
 <div class="topbar">
   <span class="chip">Room: <b id="roomLabel">demo</b></span>
@@ -98,10 +86,7 @@
     </select>
     <input id="labelCustom" placeholder="type label" style="display:none;width:110px">
   </span>
-  <button class="btn" id="togglePublish">Publish: On</button>
   <button class="btn" id="clearBtn">Clear</button>
-  <button class="btn" id="toggleMatrixBtn">Show Matrix</button>
-  <button class="btn" id="hudToggle">HUD: Off</button>
 </div>
 
 <div id="wrap">
@@ -133,38 +118,18 @@
   </footer>
 </div>
 
-<pre id="hud"></pre>
-<div id="matrixWrap">
-  <header>
-    <div>Grayscale Matrix Output</div>
-    <div id="meta" style="font-size:12px;opacity:.8;"></div>
-  </header>
-  <div id="matrix"></div>
-</div>
+<!-- Removed: HUD, MatrixWrap, Toast, FS button -->
+
 <div id="vals">MOVE {x:0.00,y:0.00}<br>LOOK {x:0.00,y:0.00}</div>
-<div id="toast"></div>
 
 <script>
-  // ======= Config (SET THIS to your server URL) =======
-  const SOCKET_SERVER_URL = "https://gamepad-be1f.onrender.com"; // e.g., your Render/ngrok base URL
+  // ======= Config =======
+  const SOCKET_SERVER_URL = "https://gamepad-be1f.onrender.com";
   const MATRIX_SIZE   = 64;        // 28 for MNIST-like
   const PEN_WIDTH_PX  = 18;
   const PEN_COLOR     = "#000000";
   const INACTIVITY_MS = 2000;
   const CANVAS_W = 512, CANVAS_H = 320; // fixed pixels everywhere
-
-  // ======= Fullscreen =======
-  function isFS(){ return !!(document.fullscreenElement || document.webkitFullscreenElement); }
-  async function goFS(){
-    const el = document.documentElement;
-    const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
-    try{
-      if (!isFS() && req) await req.call(el);
-      if (screen.orientation?.lock) { try{ await screen.orientation.lock("landscape"); }catch{} }
-    }catch{}
-  }
-  document.getElementById("fsBtn").addEventListener("click", goFS);
-  document.addEventListener("gesturestart", e => e.preventDefault(), { passive:false });
 
   // ======= Room & User =======
   const qs = new URLSearchParams(location.search);
@@ -191,17 +156,14 @@
 
   // ======= Socket.IO =======
   const socket = io(SOCKET_SERVER_URL, { transports:["websocket"], forceNew:true, path: "/socket.io" });
-  let publishOn = true;
   let myIndex = Number(localStorage.getItem("sampleIndex_"+ROOM+"_"+USER_ID) || "1");
   document.getElementById("sampleIdx").textContent = String(myIndex);
-  document.getElementById("togglePublish").onclick = () => {
-    publishOn = !publishOn;
-    document.getElementById("togglePublish").textContent = "Publish: " + (publishOn ? "On" : "Off");
-  };
 
   socket.on("connect", () => {
     socket.emit("join", { room: ROOM, userId: USER_ID }, (ack) => {
-      if (ack?.ok) toast(`Joined ${ROOM} (${ack.count}/10)`); else toast(ack?.error || "Room full", true);
+      // Removed toast. Log to console instead.
+      if (ack?.ok) console.log(`Joined ${ROOM} (${ack.count}/10)`);
+      else console.warn(ack?.error || "Room full");
     });
   });
 
@@ -229,27 +191,16 @@
   const getMove = makeStick(document.getElementById("stickL"), document.getElementById("knobL"));
   const getLook = makeStick(document.getElementById("stickR"), document.getElementById("knobR"));
 
-  // live HUD + (optional) stream to server as pad state
+  // live pad stream (no HUD)
   const vals = document.getElementById("vals");
   let lastSent = 0;
-  let hudOn = false;
-  document.getElementById("hudToggle").onclick = () => {
-    hudOn = !hudOn; document.getElementById("hud").style.display = hudOn ? "block" : "none";
-    document.getElementById("hudToggle").textContent = "HUD: " + (hudOn ? "On" : "Off");
-  };
   function hudTick(){
     const mv = getMove(), lk = getLook();
     vals.innerHTML = `MOVE {x:${mv.x.toFixed(2)}, y:${mv.y.toFixed(2)}}<br>LOOK {x:${lk.x.toFixed(2)}, y:${lk.y.toFixed(2)}}`;
     const now = performance.now();
-    if (publishOn && now - lastSent > 33){
+    if (now - lastSent > 33){
       lastSent = now;
       socket.emit("pad", { room: ROOM, userId: USER_ID, axes:[mv.x,mv.y], look:[lk.x,lk.y], t:Date.now() });
-    }
-    if (hudOn){
-      document.getElementById("hud").textContent =
-`<Gamepad Output>
-MOVE  : { x: ${mv.x.toFixed(3)}, y: ${mv.y.toFixed(3)} }
-LOOK  : { x: ${lk.x.toFixed(3)}, y: ${lk.y.toFixed(3)} }`;
     }
     requestAnimationFrame(hudTick);
   }
@@ -295,14 +246,7 @@ LOOK  : { x: ${lk.x.toFixed(3)}, y: ${lk.y.toFixed(3)} }`;
   canvas.addEventListener("pointerleave", ()=>drawing&&end());
   document.getElementById("clearBtn").onclick = () => { stopIdle(); clearCanvasOnly(); hasInk=false; };
 
-  // ======= Matrix + submit =======
-  const matrixWrap = document.getElementById("matrixWrap");
-  const matrixOut  = document.getElementById("matrix");
-  const metaEl     = document.getElementById("meta");
-  document.getElementById("toggleMatrixBtn").onclick = () => {
-    matrixWrap.style.display = (matrixWrap.style.display === "none" || matrixWrap.style.display==="") ? "block" : "none";
-  };
-
+  // ======= Submit (no Matrix UI, no Toast, always-on publishing) =======
   function rasterizeToMatrix(){
     const off=document.createElement("canvas"); off.width=MATRIX_SIZE; off.height=MATRIX_SIZE;
     const octx=off.getContext("2d", { willReadFrequently:true });
@@ -321,51 +265,41 @@ LOOK  : { x: ${lk.x.toFixed(3)}, y: ${lk.y.toFixed(3)} }`;
     }
     return mat;
   }
-  function showMatrix(mat){
-    matrixWrap.style.display="block";
-    metaEl.textContent=`size=${mat.length}×${mat[0].length} • values=0..255 (white→black)`;
-    matrixOut.textContent=JSON.stringify(mat);
-  }
   function canvasPNG(){ return canvas.toDataURL("image/png"); }
 
   function submitNow(){
     const label = (labelSel.value==="custom") ? (labelCustom.value.trim()||"custom") : labelSel.value;
     const matrix = rasterizeToMatrix();
-    showMatrix(matrix);
 
-    if (publishOn){
-      socket.emit("sample", {
-        room: ROOM,
-        userId: USER_ID,
-        index: myIndex,
-        label,
-        ts: Date.now(),
-        size: { w: canvas.width, h: canvas.height },
-        matrixSize: MATRIX_SIZE,
-        matrix,                          // <-- matrix column goes to CSV (as JSON string)
-        image: canvasPNG()               // <-- PNG saved to disk
-      }, (ack)=>{
-        if (ack?.ok){
-          myIndex += 1; localStorage.setItem("sampleIndex_"+ROOM+"_"+USER_ID, String(myIndex));
-          document.getElementById("sampleIdx").textContent = String(myIndex);
-          toast("Captured ✓");
-        } else {
-          toast(ack?.error || "Submit failed", true);
-        }
-      });
-    }
-    clearCanvasOnly(); hasInk=false; // always clear immediately
+    socket.emit("sample", {
+      room: ROOM,
+      userId: USER_ID,
+      index: myIndex,
+      label,
+      ts: Date.now(),
+      size: { w: canvas.width, h: canvas.height },
+      matrixSize: MATRIX_SIZE,
+      matrix,
+      image: canvasPNG()
+    }, (ack)=>{
+      if (ack?.ok){
+        myIndex += 1;
+        localStorage.setItem("sampleIndex_"+ROOM+"_"+USER_ID, String(myIndex));
+        document.getElementById("sampleIdx").textContent = String(myIndex);
+      } else {
+        console.warn(ack?.error || "Submit failed");
+      }
+    });
+
+    clearCanvasOnly(); hasInk=false;
   }
-
-  function toast(msg,bad){ const t=document.getElementById('toast'); t.textContent=msg; t.style.borderColor=bad?'#ff6b6b':'#2b3344'; t.style.opacity=1; setTimeout(()=>t.style.opacity=0,1100); }
 </script>
 
-<!-- Visual viewport fallback: makes --app-vh match the actual visible height on tricky browsers -->
+<!-- Visual viewport fallback: keep the scaling solid on tricky browsers -->
 <script>
 (function(){
   function setVH(){
     const h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-    // If the browser misreports svh/dvh (older Android WebView etc.), this wins.
     document.documentElement.style.setProperty('--app-vh', h + 'px');
   }
   setVH();
