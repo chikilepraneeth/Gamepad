@@ -25,13 +25,15 @@
     .label{text-align:center;margin-top:8px;font-size:14px;color:var(--muted)}
     .padbox{position:relative;width:100%;max-width:900px;aspect-ratio:16/10;margin:0 auto;background:linear-gradient(180deg,var(--bg2),#0f141d);
       border:2px solid #2b3344;border-radius:12px;box-shadow:inset 0 0 18px rgba(0,0,0,.35);overflow:hidden;touch-action:none;display:flex;align-items:center;justify-content:center;padding:10px}
-    .padbox::after{content:"Draw symbol (one stroke). Lift, wait 1s → submit";position:absolute;inset:8px auto auto 8px;font-size:12px;color:#94a3bd}
+    .padbox::after{content:"Draw symbol (one stroke). Lift, wait 2s → submit";position:absolute;inset:8px auto auto 8px;font-size:12px;color:#94a3bd}
     #draw{width:100%;height:100%;background:#ffffff;border-radius:8px;box-shadow:inset 0 0 6px rgba(0,0,0,.2);touch-action:none}
     #toast{position:fixed;left:50%;top:56px;transform:translateX(-50%);background:#1b2332;color:#cfe1ff;border:1px solid #2b3344;padding:8px 12px;border-radius:10px;z-index:9999;opacity:0;transition:opacity .15s}
     #fsBtn{position:fixed;right:12px;top:env(safe-area-inset-top,8px);z-index:10}
+    /* small helper HUD for joystick values */
+    #vals{position:fixed;right:12px;bottom:12px;z-index:10;background:rgba(17,22,30,.9);border:1px solid #2b3344;border-radius:10px;padding:8px 10px;font:12px ui-monospace,Menlo,Consolas}
   </style>
 
-  <!-- Same-origin Socket.IO -->
+  <!-- If served from the same origin as server (Render), use the bundled socket.io -->
   <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
@@ -77,10 +79,11 @@
     </div>
   </div>
 
-  <footer><small>Original PNG + Grayscale PNG + Matrix(64×64) saved per sample.</small></footer>
+  <footer><small>Original PNG + Grayscale PNG + Matrix saved per sample.</small></footer>
 </div>
 
 <div id="toast"></div>
+<div id="vals">MOVE {x:0.00,y:0.00}<br>LOOK {x:0.00,y:0.00}</div>
 
 <script>
   // ======== Fullscreen (mobile-safe) ========
@@ -94,13 +97,11 @@
     }catch{}
   }
   document.getElementById("fsBtn").onclick = goFullscreen;
-
-  // iOS double-tap / pinch prevention
   document.addEventListener("gesturestart", e => e.preventDefault(), { passive:false });
 
   // ========= Config =========
-  const INACTIVITY_MS = 1000;      // wait after finger lift before capture
-  const MATRIX_SIZE   = 64;        // downscale size for matrix
+  const INACTIVITY_MS = 2000;      // exactly 2 seconds after lift
+  const MATRIX_SIZE   = 64;        // use 28 for MNIST-like
 
   // ========= Room & User =========
   const qs = new URLSearchParams(location.search);
@@ -130,6 +131,7 @@
   labelCustom.oninput = () => { currentLabel = labelCustom.value.trim() || "custom"; };
 
   // ========= Socket.IO (same-origin) =========
+  // If serving from different origin, replace with: io("https://YOUR-DOMAIN");
   const socket = io();
   let publishOn = true;
   let myIndex = Number(localStorage.getItem("sampleIndex_"+ROOM+"_"+USER_ID) || "1");
@@ -151,7 +153,6 @@
   let W=0, H=0;
 
   function fitCanvas(){
-    // Use real innerHeight to avoid mobile browser bars
     const dpr = Math.max(1, window.devicePixelRatio || 1);
     const rect = padbox.getBoundingClientRect();
     const targetW = Math.floor(rect.width  * dpr);
@@ -170,7 +171,6 @@
     ctx.lineWidth = 18 * dpr;
   }
 
-  // ResizeObserver gives best results on mobile
   const ro = new ResizeObserver(() => fitCanvas());
   ro.observe(padbox);
   window.addEventListener("orientationchange", () => setTimeout(fitCanvas, 300), { passive:true });
@@ -181,17 +181,50 @@
 
   // ========= Drawing =========
   let drawing=false, lastX=0, lastY=0, idleTimer=null, hasInk=false;
+
   function stopIdle(){ if(idleTimer){ clearTimeout(idleTimer); idleTimer=null; } }
   function startIdle(){
     stopIdle();
     idleTimer=setTimeout(async ()=>{
-      if(hasInk){
-        await submitCurrent();
-        clearCanvas();
-        hasInk=false;
+      if (!hasInk) return;
+
+      let cleared = false;
+      const safety = setTimeout(() => {
+        if (!cleared) {
+          clearCanvas();
+          hasInk = false;
+          toast("Cleared ✓");
+          cleared = true;
+        }
+      }, 1000);
+
+      try {
+        const ack = await submitCurrent();
+        if (!cleared) {
+          clearTimeout(safety);
+          clearCanvas();
+          hasInk = false;
+          if (ack?.ok) {
+            myIndex += 1;
+            localStorage.setItem("sampleIndex_"+ROOM+"_"+USER_ID, String(myIndex));
+            document.getElementById("sampleIdx").textContent = String(myIndex);
+            toast("Saved & Cleared ✓");
+          } else {
+            toast(ack?.error || "Submit failed, cleared locally", true);
+          }
+          cleared = true;
+        }
+      } catch {
+        if (!cleared) {
+          clearTimeout(safety);
+          clearCanvas();
+          hasInk = false;
+          toast("Error; cleared locally", true);
+        }
       }
     }, INACTIVITY_MS);
   }
+
   function pt(e){ const t=e.touches?e.touches[0]:e; const r=canvas.getBoundingClientRect(); const dpr=Math.max(1,window.devicePixelRatio||1); return { x:(t.clientX-r.left)*dpr, y:(t.clientY-r.top)*dpr }; }
   function begin(e){ e.preventDefault(); stopIdle(); drawing=true; hasInk=true; const p=pt(e); lastX=p.x; lastY=p.y; }
   function move(e){ if(!drawing)return; const p=pt(e); ctx.beginPath(); ctx.moveTo(lastX,lastY); ctx.lineTo(p.x,p.y); ctx.stroke(); lastX=p.x; lastY=p.y; }
@@ -203,12 +236,72 @@
   canvas.addEventListener("pointerup", end);
   canvas.addEventListener("pointercancel", end);
   canvas.addEventListener("pointerleave", ()=>drawing&&end());
-
   document.getElementById("clearBtn").onclick = clearCanvas;
+
+  // ========= Joysticks (working MOVE/LOOK) =========
+  const vals = document.getElementById("vals");
+  function makeStick(stickEl, knobEl) {
+    const rectState = { w:0, h:0, cx:0, cy:0, r:0 };
+    const axes = { x:0, y:0 };
+    let dragging = false;
+
+    function cacheRect(){
+      const r = stickEl.getBoundingClientRect();
+      rectState.w = r.width; rectState.h = r.height;
+      rectState.cx = r.left + r.width/2; rectState.cy = r.top + r.height/2;
+      rectState.r = Math.min(r.width, r.height)*0.5*0.9;
+    }
+    function center(){ knobEl.style.left="32%"; knobEl.style.top="32%"; axes.x=0; axes.y=0; }
+
+    function setKnob(px,py){
+      const dx = px - rectState.cx, dy = py - rectState.cy;
+      const mag = Math.hypot(dx,dy), cl = mag>rectState.r ? rectState.r/mag : 1;
+      const cx = dx*cl, cy = dy*cl;
+      const lx = (cx/rectState.w*100) + 50;
+      const ly = (cy/rectState.h*100) + 50;
+      knobEl.style.left = `calc(${lx}% - 18%)`;
+      knobEl.style.top  = `calc(${ly}% - 18%)`;
+      const dead=0.05;
+      let nx = cx/rectState.r, ny = -cy/rectState.r;
+      if (Math.abs(nx)<dead) nx=0;
+      if (Math.abs(ny)<dead) ny=0;
+      axes.x = +nx.toFixed(3); axes.y = +ny.toFixed(3);
+    }
+
+    stickEl.addEventListener("pointerdown", e => { cacheRect(); dragging=true; stickEl.setPointerCapture(e.pointerId); setKnob(e.clientX,e.clientY); });
+    stickEl.addEventListener("pointermove", e => { if(dragging) setKnob(e.clientX,e.clientY); });
+    function end(){ dragging=false; center(); }
+    stickEl.addEventListener("pointerup", end);
+    stickEl.addEventListener("pointercancel", end);
+    stickEl.addEventListener("pointerleave", () => dragging && end());
+    window.addEventListener("resize", cacheRect, { passive:true });
+    center();
+    return () => ({ x:axes.x, y:axes.y });
+  }
+
+  const getMove = makeStick(document.getElementById("stickL"), document.getElementById("knobL"));
+  const getLook = makeStick(document.getElementById("stickR"), document.getElementById("knobR"));
+
+  // Show values & (optionally) emit to server (server may ignore)
+  let lastPadSent = 0;
+  function tick(){
+    const mv = getMove();
+    const lk = getLook();
+    vals.innerHTML = `MOVE {x:${mv.x.toFixed(2)}, y:${mv.y.toFixed(2)}}<br>LOOK {x:${lk.x.toFixed(2)}, y:${lk.y.toFixed(2)}}`;
+
+    // throttle emits to ~20Hz
+    const now = performance.now();
+    if (publishOn && now - lastPadSent > 50){
+      lastPadSent = now;
+      // If your server handles "pad", it can consume this; otherwise harmless.
+      socket.emit("pad", { room: ROOM, userId: USER_ID, axes: [mv.x, mv.y], look: [lk.x, lk.y], t: Date.now() });
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
 
   // ========= Grayscale helpers =========
   function toGrayPNGDataURL(){
-    // offscreen copy to keep on-screen ink untouched
     const off = document.createElement("canvas");
     off.width = W; off.height = H;
     const octx = off.getContext("2d");
@@ -223,13 +316,9 @@
     octx.putImageData(imgData, 0, 0);
     return off.toDataURL("image/png");
   }
-
-  function originalPNGDataURL(){
-    return canvas.toDataURL("image/png");
-  }
+  function originalPNGDataURL(){ return canvas.toDataURL("image/png"); }
 
   function toGrayMatrix(size = MATRIX_SIZE){
-    // Downscale to size×size and compute 0..255 grayscale ints
     const off = document.createElement("canvas");
     off.width = size; off.height = size;
     const octx = off.getContext("2d", { willReadFrequently:true });
@@ -244,7 +333,7 @@
       for (let x=0; x<size; x++){
         const i = (y*size + x) * 4;
         const r = img[i], g = img[i+1], b = img[i+2];
-        const gray = Math.round(0.299*r + 0.587*g + 0.114*b); // 0..255
+        const gray = Math.round(0.299*r + 0.587*g + 0.114*b);
         row.push(gray);
       }
       matrix.push(row);
@@ -253,32 +342,27 @@
   }
 
   // ========= Submit (original + gray + matrix) =========
-  async function submitCurrent(){
-    if(!publishOn) return;
-    const label = (labelSel.value==="custom") ? (labelCustom.value.trim()||"custom") : labelSel.value;
+  function submitCurrent(){
+    return new Promise((resolve) => {
+      if (!publishOn) return resolve({ ok:true, skipped:true });
 
-    const payload = {
-      room: ROOM,
-      userId: USER_ID,
-      index: myIndex,
-      label,
-      ts: Date.now(),
-      size: { w: W, h: H },
-      imageOriginal: originalPNGDataURL(),
-      imageGray: toGrayPNGDataURL(),
-      matrixSize: MATRIX_SIZE,
-      matrix: toGrayMatrix(MATRIX_SIZE)
-    };
+      const label = (labelSel.value==="custom") ? (labelCustom.value.trim()||"custom") : labelSel.value;
+      const payload = {
+        room: ROOM,
+        userId: USER_ID,
+        index: myIndex,
+        label,
+        ts: Date.now(),
+        size: { w: W, h: H },
+        imageOriginal: originalPNGDataURL(),
+        imageGray: toGrayPNGDataURL(),
+        matrixSize: MATRIX_SIZE,
+        matrix: toGrayMatrix(MATRIX_SIZE)
+      };
 
-    socket.emit("sample", payload, (ack)=>{
-      if (ack?.ok){
-        myIndex += 1;
-        localStorage.setItem("sampleIndex_"+ROOM+"_"+USER_ID, String(myIndex));
-        document.getElementById("sampleIdx").textContent = String(myIndex);
-        toast("Saved ✓");
-      } else {
-        toast(ack?.error || "Submit failed", true);
-      }
+      socket.emit("sample", payload, (ack) => {
+        resolve(ack || { ok:false, error:"No ack" });
+      });
     });
   }
 </script>
