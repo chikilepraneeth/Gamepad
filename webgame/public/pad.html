@@ -2,39 +2,55 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Dataset Collector Pad</title>
+  <title>Game Pad + Symbol Matrix (Firebase + Session ZIP)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#000000">
   <style>
-    :root{--bg:#0f1115;--bg2:#161a22;--fg:#e8eefc;--muted:#8fa0bf;--accent:#4cc3ff;--danger:#ff6b6b}
+    :root{--bg:#0f1115;--bg2:#161a22;--fg:#e8eefc;--muted:#8fa0bf;--accent:#4cc3ff;--accent2:#62e278;--danger:#ff6b6b}
     *{box-sizing:border-box}
-    html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,Segoe UI,Roboto,sans-serif;overflow:hidden;touch-action:none;user-select:none}
+    html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;overflow:hidden;touch-action:none;user-select:none}
     #wrap{display:grid;grid-template-rows:auto 1fr auto;height:100%;gap:8px}
     header,footer{padding:10px 12px;text-align:center;color:var(--muted)}
     header b{color:var(--fg)}
+
     .topbar{position:fixed;top:env(safe-area-inset-top,8px);left:env(safe-area-inset-left,12px);right:env(safe-area-inset-right,12px);z-index:10;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
     .chip{background:#1b2332;border:1px solid #2b3344;border-radius:10px;padding:8px 10px;font-size:13px}
     .chip input,.chip select{background:transparent;border:none;color:#e8eefc;outline:none}
     .btn{background:#1b2332;color:#e8eefc;border:1px solid #2b3344;border-radius:10px;padding:8px 12px;font-size:13px}
     .btn:active{transform:scale(.98)}
+
     #controls{display:grid;grid-template-columns:1fr 1.2fr 1fr;gap:12px;padding:8px 12px 14px;align-items:center;height:100%}
     @media(max-width:820px){#controls{grid-template-columns:1fr}.padbox{max-width:95vw}}
+
     .stick{position:relative;width:100%;max-width:300px;aspect-ratio:1/1;margin:0 auto;border-radius:50%;
       background:radial-gradient(85% 85% at 50% 50%,#1c2330,#121722);border:2px solid #2b3344;box-shadow:inset 0 0 20px rgba(0,0,0,.35);touch-action:none}
     .knob{position:absolute;width:36%;aspect-ratio:1/1;border-radius:50%;left:32%;top:32%;
       background:linear-gradient(180deg,#2a3550,#1f2738);border:2px solid #39435a;box-shadow:0 6px 16px rgba(0,0,0,.5);transition:transform .04s linear}
     .label{text-align:center;margin-top:8px;font-size:14px;color:var(--muted)}
+
     .padbox{position:relative;width:100%;max-width:900px;aspect-ratio:16/10;margin:0 auto;background:linear-gradient(180deg,var(--bg2),#0f141d);
-      border:2px solid #2b3344;border-radius:12px;box-shadow:inset 0 0 18px rgba(0,0,0,.35);overflow:hidden;touch-action:none;display:flex;align-items:center;justify-content:center;padding:10px}
-    .padbox::after{content:"Draw symbol (one stroke). Lift, wait 2s → submit";position:absolute;inset:8px auto auto 8px;font-size:12px;color:#94a3bd}
-    #draw{width:100%;height:100%;background:#ffffff;border-radius:8px;box-shadow:inset 0 0 6px rgba(0,0,0,.2);touch-action:none}
-    #toast{position:fixed;left:50%;top:56px;transform:translateX(-50%);background:#1b2332;color:#cfe1ff;border:1px solid #2b3344;padding:8px 12px;border-radius:10px;z-index:9999;opacity:0;transition:opacity .15s}
+      border:2px solid #2b3344;border-radius:12px;box-shadow:inset 0 0 18px rgba(0,0,0,.35);overflow:hidden;display:flex;align-items:center;justify-content:center;padding:10px}
+    .padbox::after{content:"Draw symbol (one stroke). Lift, wait 2s → submit";position:absolute;inset:8px auto auto 8px;font-size:12px;color:#94a3bd;pointer-events:none}
+
+    /* Drawing canvas — fixed intrinsic size; scaled visually to fit */
+    #draw{width:100%;height:100%;background:#ffffff;border-radius:8px;box-shadow:inset 0 0 6px rgba(0,0,0,.2);touch-action:none;image-rendering:pixelated}
+
+    #hud{position:fixed;left:12px;bottom:12px;z-index:10;width:min(92vw,440px);background:rgba(17,22,30,.9);border:1px solid #2b3344;border-radius:12px;
+      padding:10px 12px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.25;display:none;white-space:pre;overflow:auto;max-height:52vh}
+
+    #matrixWrap{position:fixed;left:12px;bottom:12px;z-index:11;width:min(92vw,520px);background:rgba(17,22,30,.92);border:1px solid #2b3344;border-radius:12px;
+      padding:10px 12px;display:none;max-height:55vh;overflow:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.25}
+    #matrixWrap header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;color:#cfe1ff}
+    #matrix{white-space:pre}
+
     #fsBtn{position:fixed;right:12px;top:env(safe-area-inset-top,8px);z-index:10}
-    /* small helper HUD for joystick values */
     #vals{position:fixed;right:12px;bottom:12px;z-index:10;background:rgba(17,22,30,.9);border:1px solid #2b3344;border-radius:10px;padding:8px 10px;font:12px ui-monospace,Menlo,Consolas}
+    #toast{position:fixed;left:50%;top:56px;transform:translateX(-50%);background:#1b2332;color:#cfe1ff;border:1px solid #2b3344;padding:8px 12px;border-radius:10px;z-index:9999;opacity:0;transition:opacity .15s}
   </style>
 
-  <!-- If served from the same origin as server (Render), use the bundled socket.io -->
-  <script src="/socket.io/socket.io.js"></script>
+  <!-- JSZip for client-side dataset ZIP export -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
 </head>
 <body>
 <button id="fsBtn" class="btn">Fullscreen</button>
@@ -55,10 +71,15 @@
   </span>
   <button class="btn" id="togglePublish">Publish: On</button>
   <button class="btn" id="clearBtn">Clear</button>
+  <button class="btn" id="toggleMatrixBtn">Show Matrix</button>
+  <button class="btn" id="downloadBtn">Download Session</button>
+  <button class="btn" id="hudToggle">HUD: Off</button>
 </div>
 
 <div id="wrap">
-  <header><b>Dataset Collector</b> · Draw and release to submit</header>
+  <header>
+    <b>Game Pad + Symbol Matrix</b> · Fixed canvas for consistent dataset
+  </header>
 
   <div id="controls">
     <div>
@@ -70,7 +91,7 @@
       <div class="padbox" id="padbox">
         <canvas id="draw"></canvas>
       </div>
-      <div class="label">Drawing Pad</div>
+      <div class="label">Draw symbol (one stroke)</div>
     </div>
 
     <div>
@@ -79,167 +100,98 @@
     </div>
   </div>
 
-  <footer><small>Original PNG + Grayscale PNG + Matrix saved per sample.</small></footer>
+  <footer>
+    <small>Matrix is grayscale 0..255 (white→black). PNG (original + gray) + matrix are recorded per sample. Use “Download Session”.</small>
+  </footer>
 </div>
 
-<div id="toast"></div>
+<pre id="hud"></pre>
+<div id="matrixWrap">
+  <header>
+    <div>Grayscale Matrix Output</div>
+    <div id="meta" style="font-size:12px;opacity:.8;"></div>
+  </header>
+  <div id="matrix"></div>
+</div>
 <div id="vals">MOVE {x:0.00,y:0.00}<br>LOOK {x:0.00,y:0.00}</div>
+<div id="toast"></div>
 
 <script>
-  // ======== Fullscreen (mobile-safe) ========
-  function isFullscreen(){ return !!(document.fullscreenElement || document.webkitFullscreenElement); }
-  async function goFullscreen(){
+  // ======= Config =======
+  const MATRIX_SIZE   = 64;        // set 28 for MNIST-like
+  const PEN_WIDTH_PX  = 18;
+  const PEN_COLOR     = "#000000";
+  const INACTIVITY_MS = 2000;
+
+  // Fixed intrinsic drawing surface (same across devices)
+  const CANVAS_W = 512;            // pick any; stays identical everywhere
+  const CANVAS_H = 320;
+
+  // Firebase via REST
+  const DB_URL = "https://gamepad-6aba1-default-rtdb.firebaseio.com"; // <- your RTDB
+  const ROOM = new URLSearchParams(location.search).get("room") || "demo";
+  document.getElementById("roomLabel").textContent = ROOM;
+  let publishOn = true;
+
+  const PAD_URL  = `${DB_URL}/rooms/${ROOM}/pad.json`;
+  const DRAW_URL = `${DB_URL}/rooms/${ROOM}/draw.json`;
+
+  async function putJSON(url, data){
+    if (!publishOn) return;
+    try{
+      await fetch(url, { method:"PUT", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(data) });
+    }catch(e){ /* ignore */ }
+  }
+
+  // ======= Fullscreen (mobile-friendly) =======
+  function isFS(){ return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+  async function goFS(){
     const el = document.documentElement;
     const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
     try{
-      if (!isFullscreen() && req) await req.call(el);
+      if (!isFS() && req) await req.call(el);
       if (screen.orientation?.lock) { try{ await screen.orientation.lock("landscape"); }catch{} }
     }catch{}
   }
-  document.getElementById("fsBtn").onclick = goFullscreen;
+  document.getElementById("fsBtn").addEventListener("click", goFS);
   document.addEventListener("gesturestart", e => e.preventDefault(), { passive:false });
 
-  // ========= Config =========
-  const INACTIVITY_MS = 2000;      // exactly 2 seconds after lift
-  const MATRIX_SIZE   = 64;        // use 28 for MNIST-like
+  // ======= UI handles =======
+  const hud = document.getElementById("hud");
+  const hudToggle = document.getElementById("hudToggle");
+  const toggleMatrixBtn = document.getElementById("toggleMatrixBtn");
+  const clearBtn = document.getElementById("clearBtn");
+  const downloadBtn = document.getElementById("downloadBtn");
+  const vals = document.getElementById("vals");
 
-  // ========= Room & User =========
-  const qs = new URLSearchParams(location.search);
-  const ROOM = qs.get("room") || "demo";
-  document.getElementById("roomLabel").textContent = ROOM;
+  let hudOn = false;
+  hudToggle.onclick = () => { hudOn = !hudOn; hud.style.display = hudOn ? "block" : "none"; hudToggle.textContent = "HUD: " + (hudOn ? "On" : "Off"); };
 
+  document.getElementById("togglePublish").onclick = (e) => {
+    publishOn = !publishOn;
+    e.currentTarget.textContent = "Publish: " + (publishOn ? "On" : "Off");
+  };
+
+  // ======= Label & user ID =======
   function getOrCreateUserId(){
     const key = "dataset_user_id_v1";
     let id = localStorage.getItem(key);
-    if (!id){
-      id = Math.random().toString(36).slice(2, 8); // 6-char code
-      localStorage.setItem(key, id);
-    }
+    if (!id){ id = Math.random().toString(36).slice(2,8); localStorage.setItem(key,id); }
     return id;
   }
   const USER_ID = getOrCreateUserId();
   document.getElementById("userLabel").textContent = USER_ID;
 
-  // Label UI
   const labelSel = document.getElementById("label");
   const labelCustom = document.getElementById("labelCustom");
-  let currentLabel = qs.get("label") || labelSel.value;
+  let currentLabel = new URLSearchParams(location.search).get("label") || labelSel.value;
   labelSel.value = ["triangle","square","circle","star"].includes(currentLabel) ? currentLabel : "custom";
   labelCustom.style.display = (labelSel.value === "custom") ? "inline-block" : "none";
   if (labelSel.value === "custom") labelCustom.value = currentLabel;
   labelSel.onchange = () => { if (labelSel.value === "custom"){ labelCustom.style.display="inline-block"; labelCustom.focus(); } else { labelCustom.style.display="none"; currentLabel=labelSel.value; } };
   labelCustom.oninput = () => { currentLabel = labelCustom.value.trim() || "custom"; };
 
-  // ========= Socket.IO (same-origin) =========
-  // If serving from different origin, replace with: io("https://YOUR-DOMAIN");
-  const socket = io();
-  let publishOn = true;
-  let myIndex = Number(localStorage.getItem("sampleIndex_"+ROOM+"_"+USER_ID) || "1");
-  document.getElementById("sampleIdx").textContent = String(myIndex);
-  document.getElementById("togglePublish").onclick = () => {
-    publishOn = !publishOn;
-    document.getElementById("togglePublish").textContent = "Publish: " + (publishOn ? "On" : "Off");
-  };
-  socket.on("connect", () => {
-    socket.emit("join", { room: ROOM, userId: USER_ID }, (ack) => {
-      if (!(ack?.ok)) toast(ack?.error || "Join failed", true);
-    });
-  });
-
-  // ========= Fit canvas to screen & container =========
-  const padbox = document.getElementById("padbox");
-  const canvas = document.getElementById("draw");
-  const ctx = canvas.getContext("2d", { willReadFrequently:true });
-  let W=0, H=0;
-
-  function fitCanvas(){
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
-    const rect = padbox.getBoundingClientRect();
-    const targetW = Math.floor(rect.width  * dpr);
-    const targetH = Math.floor(rect.height * dpr);
-    if (targetW === W && targetH === H) return;
-
-    W = Math.max(1, targetW);
-    H = Math.max(1, targetH);
-    canvas.width = W; canvas.height = H;
-
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, W, H);
-    ctx.lineJoin = "round";
-    ctx.lineCap = "round";
-    ctx.strokeStyle = "#000";
-    ctx.lineWidth = 18 * dpr;
-  }
-
-  const ro = new ResizeObserver(() => fitCanvas());
-  ro.observe(padbox);
-  window.addEventListener("orientationchange", () => setTimeout(fitCanvas, 300), { passive:true });
-  window.addEventListener("resize", () => setTimeout(fitCanvas, 100), { passive:true });
-  fitCanvas();
-
-  function toast(msg,bad){ const t=document.getElementById('toast'); t.textContent=msg; t.style.borderColor=bad?'#ff6b6b':'#2b3344'; t.style.opacity=1; setTimeout(()=>t.style.opacity=0,1200); }
-
-  // ========= Drawing =========
-  let drawing=false, lastX=0, lastY=0, idleTimer=null, hasInk=false;
-
-  function stopIdle(){ if(idleTimer){ clearTimeout(idleTimer); idleTimer=null; } }
-  function startIdle(){
-    stopIdle();
-    idleTimer=setTimeout(async ()=>{
-      if (!hasInk) return;
-
-      let cleared = false;
-      const safety = setTimeout(() => {
-        if (!cleared) {
-          clearCanvas();
-          hasInk = false;
-          toast("Cleared ✓");
-          cleared = true;
-        }
-      }, 1000);
-
-      try {
-        const ack = await submitCurrent();
-        if (!cleared) {
-          clearTimeout(safety);
-          clearCanvas();
-          hasInk = false;
-          if (ack?.ok) {
-            myIndex += 1;
-            localStorage.setItem("sampleIndex_"+ROOM+"_"+USER_ID, String(myIndex));
-            document.getElementById("sampleIdx").textContent = String(myIndex);
-            toast("Saved & Cleared ✓");
-          } else {
-            toast(ack?.error || "Submit failed, cleared locally", true);
-          }
-          cleared = true;
-        }
-      } catch {
-        if (!cleared) {
-          clearTimeout(safety);
-          clearCanvas();
-          hasInk = false;
-          toast("Error; cleared locally", true);
-        }
-      }
-    }, INACTIVITY_MS);
-  }
-
-  function pt(e){ const t=e.touches?e.touches[0]:e; const r=canvas.getBoundingClientRect(); const dpr=Math.max(1,window.devicePixelRatio||1); return { x:(t.clientX-r.left)*dpr, y:(t.clientY-r.top)*dpr }; }
-  function begin(e){ e.preventDefault(); stopIdle(); drawing=true; hasInk=true; const p=pt(e); lastX=p.x; lastY=p.y; }
-  function move(e){ if(!drawing)return; const p=pt(e); ctx.beginPath(); ctx.moveTo(lastX,lastY); ctx.lineTo(p.x,p.y); ctx.stroke(); lastX=p.x; lastY=p.y; }
-  function end(){ if(!drawing)return; drawing=false; startIdle(); }
-  function clearCanvas(){ fitCanvas(); }
-
-  canvas.addEventListener("pointerdown", begin);
-  canvas.addEventListener("pointermove", move);
-  canvas.addEventListener("pointerup", end);
-  canvas.addEventListener("pointercancel", end);
-  canvas.addEventListener("pointerleave", ()=>drawing&&end());
-  document.getElementById("clearBtn").onclick = clearCanvas;
-
-  // ========= Joysticks (working MOVE/LOOK) =========
-  const vals = document.getElementById("vals");
+  // ======= Joysticks =======
   function makeStick(stickEl, knobEl) {
     const rectState = { w:0, h:0, cx:0, cy:0, r:0 };
     const axes = { x:0, y:0 };
@@ -261,10 +213,10 @@
       const ly = (cy/rectState.h*100) + 50;
       knobEl.style.left = `calc(${lx}% - 18%)`;
       knobEl.style.top  = `calc(${ly}% - 18%)`;
-      const dead=0.05;
+      const dead = 0.05;
       let nx = cx/rectState.r, ny = -cy/rectState.r;
-      if (Math.abs(nx)<dead) nx=0;
-      if (Math.abs(ny)<dead) ny=0;
+      if (Math.abs(nx) < dead) nx = 0;
+      if (Math.abs(ny) < dead) ny = 0;
       axes.x = +nx.toFixed(3); axes.y = +ny.toFixed(3);
     }
 
@@ -278,93 +230,265 @@
     center();
     return () => ({ x:axes.x, y:axes.y });
   }
-
   const getMove = makeStick(document.getElementById("stickL"), document.getElementById("knobL"));
   const getLook = makeStick(document.getElementById("stickR"), document.getElementById("knobR"));
 
-  // Show values & (optionally) emit to server (server may ignore)
-  let lastPadSent = 0;
-  function tick(){
+  // Stream joystick to Firebase (optional) at ~30Hz
+  let lastSent = 0;
+  function hudTick(){
     const mv = getMove();
     const lk = getLook();
-    vals.innerHTML = `MOVE {x:${mv.x.toFixed(2)}, y:${mv.y.toFixed(2)}}<br>LOOK {x:${lk.x.toFixed(2)}, y:${lk.y.toFixed(2)}}`;
+    vals.innerHTML = `MOVE {x:${mv.x.toFixed(2)}, y:${mv.y.toFixed(2)}}<br>LOOK {x:${lk.y.toFixed(2)}, y:${lk.y.toFixed(2)}}`;
 
-    // throttle emits to ~20Hz
     const now = performance.now();
-    if (publishOn && now - lastPadSent > 50){
-      lastPadSent = now;
-      // If your server handles "pad", it can consume this; otherwise harmless.
-      socket.emit("pad", { room: ROOM, userId: USER_ID, axes: [mv.x, mv.y], look: [lk.x, lk.y], t: Date.now() });
+    if (publishOn && now - lastSent > 33){
+      lastSent = now;
+      putJSON(PAD_URL, { axes:[mv.x,mv.y], look:[lk.x,lk.y], t:Date.now() });
     }
-    requestAnimationFrame(tick);
+    if (hudOn){
+      hud.textContent =
+`<Gamepad Output>
+MOVE  : { x: ${mv.x.toFixed(3)}, y: ${mv.y.toFixed(3)} }
+LOOK  : { x: ${lk.x.toFixed(3)}, y: ${lk.y.toFixed(3)} }`;
+    }
+    requestAnimationFrame(hudTick);
   }
-  requestAnimationFrame(tick);
+  requestAnimationFrame(hudTick);
 
-  // ========= Grayscale helpers =========
-  function toGrayPNGDataURL(){
+  // ======= Drawing — fixed intrinsic size =======
+  const canvas = document.getElementById("draw");
+  const ctx = canvas.getContext("2d", { willReadFrequently:true });
+
+  // Fixed pixels everywhere (dataset consistency)
+  canvas.width = CANVAS_W;
+  canvas.height = CANVAS_H;
+
+  function resetBrush(){
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.lineJoin = "round"; ctx.lineCap = "round";
+    ctx.strokeStyle = PEN_COLOR; ctx.lineWidth = PEN_WIDTH_PX;
+  }
+  resetBrush();
+
+  function clearCanvasOnly(){ // Clear without resizing (prevents ghosting)
+    ctx.save();
+    ctx.setTransform(1,0,0,1,0,0);           // reset any transform (safety)
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.restore();
+    resetBrush();
+  }
+
+  // Pointer handling
+  let drawing=false, lastX=0, lastY=0, idleTimer=null, hasInk=false;
+
+  function stopIdle(){ if(idleTimer){ clearTimeout(idleTimer); idleTimer=null; } }
+  function startIdle(){
+    stopIdle();
+    idleTimer = setTimeout(async () => {
+      if (!hasInk) return;
+      // Compute artifacts
+      const matrix = rasterizeToMatrix();
+      showMatrix(matrix); // keep visible
+
+      // Publish (non-blocking)
+      putJSON(DRAW_URL, { size: MATRIX_SIZE, matrix, t: Date.now() });
+
+      // Record locally for session ZIP
+      recordSample(matrix);
+
+      // Always clear drawing surface exactly now
+      clearCanvasOnly(); hasInk=false; toast("Captured & Cleared ✓");
+    }, INACTIVITY_MS);
+  }
+
+  function pt(e){
+    const t = e.touches ? e.touches[0] : e;
+    const rect = canvas.getBoundingClientRect();
+    // map client coords into canvas pixels (since canvas is scaled by CSS)
+    const sx = canvas.width / rect.width;
+    const sy = canvas.height / rect.height;
+    return { x: (t.clientX - rect.left)*sx, y:(t.clientY - rect.top)*sy };
+  }
+
+  function begin(e){ e.preventDefault(); stopIdle(); drawing=true; hasInk=true; const p=pt(e); lastX=p.x; lastY=p.y; }
+  function move (e){ if(!drawing) return; const p=pt(e); ctx.beginPath(); ctx.moveTo(lastX,lastY); ctx.lineTo(p.x,p.y); ctx.stroke(); lastX=p.x; lastY=p.y; }
+  function end  (){ if(!drawing) return; drawing=false; startIdle(); }
+
+  canvas.addEventListener("pointerdown", begin);
+  canvas.addEventListener("pointermove", move);
+  canvas.addEventListener("pointerup", end);
+  canvas.addEventListener("pointercancel", end);
+  canvas.addEventListener("pointerleave", ()=>drawing&&end());
+  clearBtn.onclick = () => { stopIdle(); clearCanvasOnly(); hasInk=false; };
+
+  // ======= Matrix & helpers =======
+  const matrixWrap = document.getElementById("matrixWrap");
+  const matrixOut  = document.getElementById("matrix");
+  const metaEl     = document.getElementById("meta");
+  toggleMatrixBtn.onclick = () => {
+    matrixWrap.style.display = (matrixWrap.style.display === "none" || matrixWrap.style.display==="") ? "block" : "none";
+  };
+
+  function rasterizeToMatrix(){
     const off = document.createElement("canvas");
-    off.width = W; off.height = H;
-    const octx = off.getContext("2d");
-    octx.drawImage(canvas, 0, 0, W, H);
+    off.width = MATRIX_SIZE; off.height = MATRIX_SIZE;
+    const octx = off.getContext("2d", { willReadFrequently:true });
+    octx.fillStyle = "#ffffff"; octx.fillRect(0,0,MATRIX_SIZE,MATRIX_SIZE);
+    octx.imageSmoothingEnabled = true; octx.imageSmoothingQuality = "high";
+    octx.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, MATRIX_SIZE, MATRIX_SIZE);
 
-    const imgData = octx.getImageData(0, 0, W, H);
-    const d = imgData.data;
-    for (let i=0; i<d.length; i+=4){
-      const gray = 0.299*d[i] + 0.587*d[i+1] + 0.114*d[i+2];
-      d[i] = d[i+1] = d[i+2] = gray;
+    const img = octx.getImageData(0, 0, MATRIX_SIZE, MATRIX_SIZE).data;
+    const mat = [];
+    for (let y=0; y<MATRIX_SIZE; y++){
+      const row=[];
+      for (let x=0; x<MATRIX_SIZE; x++){
+        const i=(y*MATRIX_SIZE+x)*4, r=img[i], g=img[i+1], b=img[i+2];
+        row.push(Math.round(0.299*r + 0.587*g + 0.114*b));
+      }
+      mat.push(row);
     }
-    octx.putImageData(imgData, 0, 0);
+    return mat;
+  }
+
+  function showMatrix(mat){
+    matrixWrap.style.display = "block";
+    metaEl.textContent = `size=${mat.length}×${mat[0].length} • values=0..255 (white→black)`;
+    matrixOut.textContent = JSON.stringify(mat);
+  }
+
+  function canvasPNG(){ return canvas.toDataURL("image/png"); }
+  function canvasGrayPNG(){
+    const off=document.createElement("canvas");
+    off.width=canvas.width; off.height=canvas.height;
+    const octx=off.getContext("2d");
+    octx.drawImage(canvas,0,0);
+    const imgData=octx.getImageData(0,0,off.width,off.height);
+    const d=imgData.data;
+    for (let i=0;i<d.length;i+=4){
+      const g=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
+      d[i]=d[i+1]=d[i+2]=g;
+    }
+    octx.putImageData(imgData,0,0);
     return off.toDataURL("image/png");
   }
-  function originalPNGDataURL(){ return canvas.toDataURL("image/png"); }
 
-  function toGrayMatrix(size = MATRIX_SIZE){
-    const off = document.createElement("canvas");
-    off.width = size; off.height = size;
-    const octx = off.getContext("2d", { willReadFrequently:true });
-    octx.fillStyle = "#fff"; octx.fillRect(0,0,size,size);
-    octx.imageSmoothingEnabled = true; octx.imageSmoothingQuality = "high";
-    octx.drawImage(canvas, 0, 0, W, H, 0, 0, size, size);
+  // ======= Session dataset (client-side ZIP) =======
+  const sessionRows = []; // holds CSV rows
+  let sampleIdx = Number(localStorage.getItem("sampleIndex_"+ROOM+"_"+USER_ID) || "1");
+  document.getElementById("sampleIdx").textContent = String(sampleIdx);
 
-    const img = octx.getImageData(0, 0, size, size).data;
-    const matrix = [];
-    for (let y=0; y<size; y++){
-      const row = [];
-      for (let x=0; x<size; x++){
-        const i = (y*size + x) * 4;
-        const r = img[i], g = img[i+1], b = img[i+2];
-        const gray = Math.round(0.299*r + 0.587*g + 0.114*b);
-        row.push(gray);
-      }
-      matrix.push(row);
+  function recordSample(matrix){
+    const label = (labelSel.value==="custom") ? (labelCustom.value.trim()||"custom") : labelSel.value;
+    const ts = Date.now();
+    // build CSV row object (matrix inlined as JSON)
+    const row = {
+      room: ROOM,
+      userId: USER_ID,
+      index: sampleIdx,
+      label,
+      timestamp: ts,
+      width: canvas.width,
+      height: canvas.height,
+      matrixSize: MATRIX_SIZE,
+      matrix: JSON.stringify(matrix)
+    };
+    sessionRows.push(row);
+    // bump index for next local sample
+    sampleIdx += 1;
+    localStorage.setItem("sampleIndex_"+ROOM+"_"+USER_ID, String(sampleIdx));
+    document.getElementById("sampleIdx").textContent = String(sampleIdx);
+  }
+
+  function toCSV(rows){
+    if (!rows.length) return "";
+    const headers = ["room","userId","index","label","timestamp","width","height","matrixSize","matrix"];
+    const escape = v => {
+      const s = String(v ?? "");
+      return (/[",\n]/.test(s)) ? `"${s.replace(/"/g,'""')}"` : s;
+    };
+    const lines = [headers.join(",")];
+    for (const r of rows){
+      lines.push(headers.map(h => escape(r[h])).join(","));
     }
-    return matrix;
+    return lines.join("\n");
   }
 
-  // ========= Submit (original + gray + matrix) =========
-  function submitCurrent(){
-    return new Promise((resolve) => {
-      if (!publishOn) return resolve({ ok:true, skipped:true });
+  async function downloadSessionZip(){
+    if (!sessionRows.length){ toast("No samples yet"); return; }
 
-      const label = (labelSel.value==="custom") ? (labelCustom.value.trim()||"custom") : labelSel.value;
-      const payload = {
-        room: ROOM,
-        userId: USER_ID,
-        index: myIndex,
-        label,
-        ts: Date.now(),
-        size: { w: W, h: H },
-        imageOriginal: originalPNGDataURL(),
-        imageGray: toGrayPNGDataURL(),
-        matrixSize: MATRIX_SIZE,
-        matrix: toGrayMatrix(MATRIX_SIZE)
-      };
+    const zip = new JSZip();
+    // CSV
+    zip.file("dataset.csv", toCSV(sessionRows));
 
-      socket.emit("sample", payload, (ack) => {
-        resolve(ack || { ok:false, error:"No ack" });
-      });
-    });
+    // Also include PNGs and matrices as JSON files for convenience
+    // Re-render each saved stroke is not trivial, so we capture current canvas at submit time:
+    // For that, we kept nothing; so capture is done WHEN submitting:
+    // solution: alongside recordSample, we also stored PNGs at submit time (below).
+    // We'll put them in arrays kept in parallel with sessionRows.
+    for (let i=0;i<sessionRows.length;i++){
+      const meta = sessionRows[i];
+      // we attached data URLs at capture time:
+      const origDataURL = sessionRows[i].__orig_png;
+      const grayDataURL = sessionRows[i].__gray_png;
+      const matrixJSON  = meta.matrix;
+      const baseDir = `data/${meta.room}/${meta.userId}/${meta.index}`;
+      // data URLs -> binaries
+      function dataURLtoUint8(base64url){
+        const m = base64url.match(/^data:.*;base64,(.*)$/);
+        const b = atob(m[1]);
+        const arr = new Uint8Array(b.length);
+        for (let j=0;j<b.length;j++) arr[j]=b.charCodeAt(j);
+        return arr;
+      }
+      if (origDataURL) zip.file(`${baseDir}.png`, dataURLtoUint8(origDataURL));
+      if (grayDataURL) zip.file(`${baseDir}_gray.png`, dataURLtoUint8(grayDataURL));
+      zip.file(`${baseDir}_matrix.json`, matrixJSON);
+    }
+
+    const blob = await zip.generateAsync({ type:"blob", compression:"DEFLATE", compressionOptions:{ level:9 } });
+    saveAs(blob, `session_${ROOM}_${USER_ID}.zip`);
   }
+
+  downloadBtn.onclick = downloadSessionZip;
+
+  function toast(msg,bad){ const t=document.getElementById('toast'); t.textContent=msg; t.style.borderColor=bad?'#ff6b6b':'#2b3344'; t.style.opacity=1; setTimeout(()=>t.style.opacity=0,1100); }
+
+  // Hook: attach PNGs to last row at capture time
+  function attachPNGsToLastRow(){
+    if (!sessionRows.length) return;
+    const last = sessionRows[sessionRows.length-1];
+    last.__orig_png = canvasPNG();
+    last.__gray_png = canvasGrayPNG();
+  }
+
+  // Patch recordSample to call PNG attach before clearing
+  const _recordSample = recordSample;
+  recordSample = function(matrix){
+    // Attach PNGs BEFORE we clear:
+    attachPNGsToLastRow = () => {}; // prevent double attach for previous entries
+    const orig = canvasPNG();
+    const gray = canvasGrayPNG();
+    // create row first
+    const label = (labelSel.value==="custom") ? (labelCustom.value.trim()||"custom") : labelSel.value;
+    const ts = Date.now();
+    const row = {
+      room: ROOM,
+      userId: USER_ID,
+      index: sampleIdx,
+      label,
+      timestamp: ts,
+      width: canvas.width,
+      height: canvas.height,
+      matrixSize: MATRIX_SIZE,
+      matrix: JSON.stringify(matrix),
+      __orig_png: orig,
+      __gray_png: gray
+    };
+    sessionRows.push(row);
+    sampleIdx += 1;
+    localStorage.setItem("sampleIndex_"+ROOM+"_"+USER_ID, String(sampleIdx));
+    document.getElementById("sampleIdx").textContent = String(sampleIdx);
+  };
 </script>
 </body>
 </html>
