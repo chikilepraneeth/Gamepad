@@ -16,12 +16,11 @@ const HOST = "0.0.0.0";
 
 const app = express();
 
-// If you also want to allow a separate front-end (e.g., GitHub Pages) to connect,
-// keep CORS enabled. It doesn't hurt same-origin usage.
+// CORS (safe to leave; we still serve same-origin)
 app.use(cors({
   origin: [
-    "https://chikilepraneeth.github.io", // your GH Pages (optional)
-    "*" // allow others while testing; lock down later if needed
+    "https://chikilepraneeth.github.io",
+    "*"
   ],
   credentials: true
 }));
@@ -51,19 +50,21 @@ const csvPath = path.join(dataDir, "dataset.csv");
 const csvWriter = createCsvWriter({
   path: csvPath,
   header: [
-    { id: "room",      title: "room" },
-    { id: "userId",    title: "userId" },
-    { id: "index",     title: "index" },
-    { id: "label",     title: "label" },
-    { id: "filename",  title: "filename" },
-    { id: "timestamp", title: "timestamp" },
-    { id: "width",     title: "width" },
-    { id: "height",    title: "height" }
+    { id: "room",         title: "room" },
+    { id: "userId",       title: "userId" },
+    { id: "index",        title: "index" },
+    { id: "label",        title: "label" },
+    { id: "filename",     title: "filename" },      // original PNG
+    { id: "grayFilename", title: "grayFilename" },  // grayscale PNG
+    { id: "matrixFile",   title: "matrixFile" },    // JSON 64x64
+    { id: "matrixSize",   title: "matrixSize" },    // e.g., 64
+    { id: "timestamp",    title: "timestamp" },
+    { id: "width",        title: "width" },
+    { id: "height",       title: "height" }
   ],
   append: fs.existsSync(csvPath),
 });
 
-// Keep a rolling window for /dataset viewer
 const recentRows = [];
 const MAX_RECENT = 500;
 
@@ -76,78 +77,89 @@ function parseDataURL(dataURL) {
 
 io.on("connection", (socket) => {
   let joinedRoom = null;
-  let joinedUser = null;
 
   socket.on("join", ({ room, userId }, ack) => {
     if (!room || !userId) return ack?.({ ok:false, error:"Missing room/userId" });
     joinedRoom = room;
-    joinedUser = userId;
     socket.join(room);
     ack?.({ ok:true });
   });
 
+  // payload now includes: imageOriginal, imageGray, matrix, matrixSize
   socket.on("sample", async (payload, ack) => {
     try {
       if (!joinedRoom) return ack?.({ ok:false, error:"Not joined" });
 
-      const { room, userId, index, label, ts, size, image } = payload || {};
-      if (!room || !userId || !index || !label || !image) {
-        return ack?.({ ok:false, error:"Missing fields" });
+      const {
+        room, userId, index, label, ts,
+        size, imageOriginal, imageGray,
+        matrix, matrixSize
+      } = payload || {};
+
+      if (!room || !userId || !index || !label || !imageOriginal || !imageGray || !Array.isArray(matrix)) {
+        return ack?.({ ok:false, error:"Missing fields (need original, gray, matrix)" });
       }
 
-      // Save PNG: data/<room>/<userId>/<index>.png
+      // Folder: data/<room>/<userId>/
       const folder = path.join(dataDir, room, userId);
-      fs.mkdirSync(folder, { recursive:true });
-      const filenameAbs = path.join(folder, `${index}.png`);
-      fs.writeFileSync(filenameAbs, parseDataURL(image));
+      fs.mkdirSync(folder, { recursive: true });
 
-      // Build row + write to CSV
+      // Save original PNG
+      const fileOrigAbs = path.join(folder, `${index}.png`);
+      fs.writeFileSync(fileOrigAbs, parseDataURL(imageOriginal));
+
+      // Save grayscale PNG
+      const fileGrayAbs = path.join(folder, `${index}_gray.png`);
+      fs.writeFileSync(fileGrayAbs, parseDataURL(imageGray));
+
+      // Save matrix JSON
+      const fileMatAbs = path.join(folder, `${index}_matrix.json`);
+      fs.writeFileSync(fileMatAbs, JSON.stringify({
+        size: matrixSize || (matrix?.length ?? 0),
+        matrix
+      }));
+
+      // Row
       const row = {
-        room,
-        userId,
-        index,
-        label,
-        filename: path.relative(dataDir, filenameAbs).replace(/\\/g,"/"),
+        room, userId, index, label,
+        filename: path.relative(dataDir, fileOrigAbs).replace(/\\/g,"/"),
+        grayFilename: path.relative(dataDir, fileGrayAbs).replace(/\\/g,"/"),
+        matrixFile: path.relative(dataDir, fileMatAbs).replace(/\\/g,"/"),
+        matrixSize: matrixSize || (matrix?.length ?? 0),
         timestamp: ts || Date.now(),
         width: size?.w || 0,
-        height: size?.h || 0,
+        height: size?.h || 0
       };
-      await csvWriter.writeRecords([row]);
 
-      // Recent rows for viewer
+      await csvWriter.writeRecords([row]);
       recentRows.push(row);
       if (recentRows.length > MAX_RECENT) recentRows.shift();
 
-      // Notify room listeners (optional)
       io.to(room).emit("sample_row", row);
-
-      // Log one-line for debugging
-      console.log(`[SAVED] ${row.room} | ${row.userId} #${row.index} "${row.label}" -> ${row.filename}`);
+      console.log(`[SAVED] ${row.room} | ${row.userId} #${row.index} "${row.label}" -> ${row.filename}, ${row.grayFilename}, ${row.matrixFile}`);
       ack?.({ ok:true });
     } catch (e) {
       console.error("sample error:", e);
       ack?.({ ok:false, error:String(e) });
     }
   });
-
-  socket.on("disconnect", () => {
-    // no strict room bookkeeping needed here
-  });
 });
 
-// Dataset viewers
+// Simple viewers
 app.get("/dataset.json", (_req, res) => res.json(recentRows));
 
 app.get("/dataset", (_req, res) => {
-  const rows = recentRows;
   const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const tr = rows.map(r => `
+  const trs = recentRows.map(r => `
     <tr>
       <td>${esc(r.room)}</td>
       <td>${esc(r.userId)}</td>
       <td>${esc(r.index)}</td>
       <td>${esc(r.label)}</td>
       <td><a href="/data/${esc(r.filename)}" target="_blank">${esc(r.filename)}</a></td>
+      <td><a href="/data/${esc(r.grayFilename)}" target="_blank">${esc(r.grayFilename)}</a></td>
+      <td><a href="/data/${esc(r.matrixFile)}" target="_blank">${esc(r.matrixFile)}</a></td>
+      <td>${esc(r.matrixSize)}</td>
       <td>${new Date(r.timestamp).toLocaleString()}</td>
       <td>${esc(r.width)}</td>
       <td>${esc(r.height)}</td>
@@ -156,25 +168,26 @@ app.get("/dataset", (_req, res) => {
 
   res.send(`<!doctype html>
   <meta charset="utf-8">
-  <title>Dataset (${rows.length})</title>
+  <title>Dataset (${recentRows.length})</title>
   <style>
     body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;padding:16px}
     table{border-collapse:collapse;width:100%}
     td,th{border:1px solid #ccc;padding:6px 8px;font-size:14px}
     th{background:#f6f6f6;text-align:left}
   </style>
-  <h2>Dataset (latest ${rows.length})</h2>
+  <h2>Dataset (latest ${recentRows.length})</h2>
   <p>JSON: <a href="/dataset.json" target="_blank">/dataset.json</a></p>
   <table>
     <thead><tr>
       <th>room</th><th>userId</th><th>index</th><th>label</th>
-      <th>filename</th><th>timestamp</th><th>width</th><th>height</th>
+      <th>orig PNG</th><th>gray PNG</th><th>matrix JSON</th><th>size</th>
+      <th>timestamp</th><th>width</th><th>height</th>
     </tr></thead>
-    <tbody>${tr || '<tr><td colspan="8" style="text-align:center;color:#888">No rows yet</td></tr>'}</tbody>
+    <tbody>${trs || '<tr><td colspan="11" style="text-align:center;color:#888">No rows yet</td></tr>'}</tbody>
   </table>`);
 });
 
-// Serve saved images
+// Serve files
 app.use("/data", express.static(dataDir));
 
 server.listen(PORT, HOST, () => {
