@@ -15,6 +15,8 @@ const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || "0.0.0.0";
+const ROOM_CAP = Number(process.env.ROOM_CAP || 100); // <-- cap now 100 by default
+
 const app = express();
 
 // CORS
@@ -73,7 +75,7 @@ app.get("/dataset.json", (req, res) => {
   }
 });
 
-// 🔥 NEW: Delete one row (by room + userId + index)
+// 🔥 Delete one row (by room + userId + index)
 app.delete("/dataset", (req, res) => {
   try {
     const { room, userId, index } = req.query || {};
@@ -250,15 +252,15 @@ io.on("connection", (socket) => {
 
   socket.on("join", ({ room, userId }, ack) => {
     try{
-      if (!room || !userId) return ack?.({ ok:false, error:"Missing room/userId" });
+      if (!room || !userId) return ack?.({ ok:false, error:"Missing room/userId", cap: ROOM_CAP });
       const set = ensureRoom(room);
-      if (set.size >= 100) return ack?.({ ok:false, error:"Room full (max 10)" });
+      if (set.size >= ROOM_CAP) return ack?.({ ok:false, error:`Room full (max ${ROOM_CAP})`, cap: ROOM_CAP });
       set.add(userId);
       joinedRoom = room; joinedUser = userId;
       socket.join(room);
-      io.to(room).emit("room_update", { room, count: set.size });
-      ack?.({ ok:true, count:set.size });
-    }catch(e){ ack?.({ ok:false, error:String(e) }); }
+      io.to(room).emit("room_update", { room, count: set.size, cap: ROOM_CAP });
+      ack?.({ ok:true, count:set.size, cap: ROOM_CAP });
+    }catch(e){ ack?.({ ok:false, error:String(e), cap: ROOM_CAP }); }
   });
 
   // optional pad stream (no-op)
@@ -303,7 +305,7 @@ io.on("connection", (socket) => {
       const set = rooms.get(joinedRoom);
       if (set) {
         set.delete(joinedUser);
-        io.to(joinedRoom).emit("room_update", { room: joinedRoom, count: set.size });
+        io.to(joinedRoom).emit("room_update", { room: joinedRoom, count: set.size, cap: ROOM_CAP });
       }
     }
   });
@@ -315,5 +317,5 @@ server.listen(PORT, HOST, () => {
   console.log(`🧾 CSV: ${csvPath}`);
   console.log(`👀 View rows at:   http://${HOST}:${PORT}/dataset`);
   console.log(`🧩 JSON endpoint:  http://${HOST}:${PORT}/dataset.json`);
+  console.log(`👥 Room cap: ${ROOM_CAP}`);
 });
-
