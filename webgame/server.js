@@ -17,14 +17,13 @@ const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || "0.0.0.0";
 const app = express();
 
-// CORS: allow your GitHub Pages origin and others
+// CORS
 app.use(cors({ origin: "*", credentials: true }));
 
-// Static: optionally serve a local /public for testing pad.html from backend
+// Optional static for local testing
 const publicDir = path.join(__dirname, "public");
 if (fs.existsSync(publicDir)) app.use(express.static(publicDir));
 
-// Socket.IO
 const server = http.createServer(app);
 const io = new IOServer(server, {
   cors: { origin: "*", credentials: true },
@@ -36,24 +35,26 @@ const dataDir = path.join(__dirname, "data");
 fs.mkdirSync(dataDir, { recursive: true });
 const csvPath = path.join(dataDir, "dataset.csv");
 
+const csvHeader = [
+  { id: "room",        title: "room" },
+  { id: "userId",      title: "userId" },
+  { id: "index",       title: "index" },
+  { id: "label",       title: "label" },
+  { id: "filename",    title: "filename" },   // relative path to PNG
+  { id: "timestamp",   title: "timestamp" },
+  { id: "width",       title: "width" },
+  { id: "height",      title: "height" },
+  { id: "matrixSize",  title: "matrixSize" },
+  { id: "matrix",      title: "matrix" },     // JSON string (grayscale matrix)
+];
+
 const csvWriter = createCsvWriter({
   path: csvPath,
-  header: [
-    { id: "room",        title: "room" },
-    { id: "userId",      title: "userId" },
-    { id: "index",       title: "index" },
-    { id: "label",       title: "label" },
-    { id: "filename",    title: "filename" },   // relative path to PNG
-    { id: "timestamp",   title: "timestamp" },
-    { id: "width",       title: "width" },
-    { id: "height",      title: "height" },
-    { id: "matrixSize",  title: "matrixSize" },
-    { id: "matrix",      title: "matrix" },     // JSON string (grayscale matrix)
-  ],
+  header: csvHeader,
   append: fs.existsSync(csvPath),
 });
 
-// Expose PNGs from /data
+// Serve PNGs
 app.use("/data", express.static(dataDir));
 
 // Health
@@ -72,7 +73,44 @@ app.get("/dataset.json", (req, res) => {
   }
 });
 
-// Dataset HTML table (thumbnail + link)
+// 🔥 NEW: Delete one row (by room + userId + index)
+app.delete("/dataset", (req, res) => {
+  try {
+    const { room, userId, index } = req.query || {};
+    if (!room || !userId || !index) {
+      return res.status(400).json({ ok:false, error:"Missing room/userId/index" });
+    }
+    if (!fs.existsSync(csvPath)) return res.status(404).json({ ok:false, error:"No dataset" });
+
+    const raw = fs.readFileSync(csvPath, "utf8");
+    const rows = raw.trim()
+      ? csvParse(raw, { columns: true, skip_empty_lines: true })
+      : [];
+
+    const i = rows.findIndex(r => r.room === room && r.userId === userId && String(r.index) === String(index));
+    if (i === -1) return res.status(404).json({ ok:false, error:"Row not found" });
+
+    // Delete PNG if present
+    const rel = rows[i].filename;
+    if (rel) {
+      const abs = path.join(dataDir, rel);
+      if (fs.existsSync(abs)) {
+        try { fs.unlinkSync(abs); } catch {}
+      }
+    }
+
+    // Rewrite CSV without that row
+    rows.splice(i, 1);
+    const writer = createCsvWriter({ path: csvPath, header: csvHeader, append: false });
+    writer.writeRecords(rows).then(() => {
+      return res.json({ ok:true });
+    }).catch(e => res.status(500).json({ ok:false, error:String(e) }));
+  } catch (e) {
+    res.status(500).json({ ok:false, error:String(e) });
+  }
+});
+
+// Dataset HTML
 app.get("/dataset", (req, res) => {
   try {
     const rows = fs.existsSync(csvPath)
@@ -81,19 +119,23 @@ app.get("/dataset", (req, res) => {
 
     const rowsHtml = rows.map(r => {
       const imgHref = `/data/${r.filename}`;
-      const thumb = `<a href="${imgHref}" target="_blank"><img src="${imgHref}" style="height:64px;border:1px solid #ccc;border-radius:6px"></a>`;
+      const thumb = r.filename
+        ? `<a href="${imgHref}" target="_blank"><img src="${imgHref}" style="height:64px;border:1px solid #ccc;border-radius:6px"></a>`
+        : `<span style="opacity:.7">n/a</span>`;
       const matShort = (r.matrix && r.matrix.length > 120) ? (r.matrix.slice(0,120) + "…") : (r.matrix||"");
+      const delAttrs = `data-room="${r.room}" data-user="${r.userId}" data-index="${r.index}"`;
       return `
-        <tr>
+        <tr id="row-${r.room}-${r.userId}-${r.index}">
           <td>${r.room}</td>
           <td>${r.userId}</td>
           <td>${r.index}</td>
           <td>${r.label}</td>
-          <td>${thumb}<br><small>${r.filename}</small></td>
+          <td>${thumb}<br><small>${r.filename||""}</small></td>
           <td>${new Date(Number(r.timestamp)||0).toLocaleString()}</td>
           <td>${r.width}×${r.height}</td>
           <td>${r.matrixSize}</td>
           <td style="max-width:420px; word-break:break-word;"><code>${matShort}</code></td>
+          <td><button class="btn btn-del" ${delAttrs}>Delete</button></td>
         </tr>`;
     }).join("");
 
@@ -110,7 +152,10 @@ app.get("/dataset", (req, res) => {
   th,td{border:1px solid #2b3344;padding:8px 10px;font-size:13px;vertical-align:top}
   th{position:sticky;top:0;background:#1b2332}
   .bar{display:flex;gap:12px;align-items:center;margin:12px 0}
-  .btn{background:#1b2332;border:1px solid #2b3344;border-radius:8px;padding:8px 12px;color:#e8eefc;text-decoration:none}
+  .btn{background:#1b2332;border:1px solid #2b3344;border-radius:8px;padding:8px 12px;color:#e8eefc;text-decoration:none;cursor:pointer}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn-del{background:#2a1f24;border-color:#4b2a35}
+  #toast{position:fixed;right:16px;bottom:16px;background:#1b2332;border:1px solid #2b3344;border-radius:10px;padding:10px 12px}
 </style>
 </head>
 <body>
@@ -122,10 +167,49 @@ app.get("/dataset", (req, res) => {
   <table>
     <thead><tr>
       <th>room</th><th>userId</th><th>index</th><th>label</th>
-      <th>image</th><th>timestamp</th><th>size</th><th>matrixSize</th><th>matrix</th>
+      <th>image</th><th>timestamp</th><th>size</th><th>matrixSize</th><th>matrix</th><th>actions</th>
     </tr></thead>
-    <tbody>${rowsHtml || "<tr><td colspan='9'>No rows yet.</td></tr>"}</tbody>
+    <tbody id="tbody">${rowsHtml || "<tr><td colspan='10'>No rows yet.</td></tr>"}</tbody>
   </table>
+  <div id="toast" style="display:none"></div>
+<script>
+  async function delRow(btn){
+    const room = btn.dataset.room;
+    const user = btn.dataset.user;
+    const index = btn.dataset.index;
+    if (!confirm('Delete this row?')) return;
+    btn.disabled = true;
+    try{
+      const res = await fetch(\`/dataset?room=\${encodeURIComponent(room)}&userId=\${encodeURIComponent(user)}&index=\${encodeURIComponent(index)}\`, {
+        method: 'DELETE'
+      });
+      const j = await res.json().catch(()=> ({}));
+      if (res.ok && j.ok){
+        const tr = document.getElementById('row-'+room+'-'+user+'-'+index);
+        if (tr) tr.remove();
+        toast('Deleted ✓');
+      }else{
+        toast(j.error || 'Delete failed', true);
+        btn.disabled = false;
+      }
+    }catch(e){
+      toast('Delete failed', true);
+      btn.disabled = false;
+    }
+  }
+  function toast(msg,bad){
+    const t=document.getElementById('toast');
+    t.textContent = msg;
+    t.style.borderColor = bad ? '#ff6b6b' : '#2b3344';
+    t.style.display = 'block';
+    setTimeout(()=>{ t.style.display='none'; }, 1200);
+  }
+  document.addEventListener('click', (e)=>{
+    if (e.target && e.target.classList.contains('btn-del')){
+      delRow(e.target);
+    }
+  });
+</script>
 </body></html>`);
   } catch (e) {
     res.status(500).send(String(e));
@@ -148,8 +232,8 @@ app.get("/download", (req,res) => {
   }
 });
 
-// Room management (optional)
-const rooms = new Map(); // room -> Set(userIds)
+// Rooms
+const rooms = new Map();
 function ensureRoom(room){ if(!rooms.has(room)) rooms.set(room,new Set()); return rooms.get(room); }
 
 // Helpers
@@ -177,10 +261,10 @@ io.on("connection", (socket) => {
     }catch(e){ ack?.({ ok:false, error:String(e) }); }
   });
 
-  // Optional pad streaming (ignored server-side, but kept for completeness)
-  socket.on("pad", (_payload) => { /* no-op */ });
+  // optional pad stream (no-op)
+  socket.on("pad", (_payload) => {});
 
-  // Sample payload (PNG + matrix)
+  // Sample
   socket.on("sample", async (payload, ack) => {
     try{
       if (!joinedRoom) return ack?.({ ok:false, error:"Not joined" });
@@ -189,13 +273,11 @@ io.on("connection", (socket) => {
         return ack?.({ ok:false, error:"Missing fields" });
       }
 
-      // Save PNG
       const folder = path.join(dataDir, room, userId);
       fs.mkdirSync(folder, { recursive:true });
       const filenameAbs = path.join(folder, `${index}.png`);
       fs.writeFileSync(filenameAbs, parseDataURL(image));
 
-      // Append CSV row (matrix JSON string)
       await csvWriter.writeRecords([{
         room,
         userId,
