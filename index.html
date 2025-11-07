@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Game Pad + Symbol Matrix (Firebase SDK)</title>
+  <title>Game Pad + Symbol Matrix (FAST SDK)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <meta name="theme-color" content="#000000">
   <style>
@@ -12,24 +12,21 @@
     #wrap{display:grid;grid-template-rows:auto 1fr auto;height:100%;gap:8px}
     header,footer{padding:10px 12px;text-align:center;color:var(--muted)}
     header b{color:var(--fg)}
-
-    /* Buttons */
-    #hudToggle,#toggleMatrixBtn,#publishBtn,#fsBtn{
+    #hudToggle,#publishBtn,#fsBtn{
       position:fixed;z-index:10;background:#1b2332;color:#dfe7ff;border:1px solid #2b3344;border-radius:10px;
       padding:8px 12px;font-size:13px
     }
     #hudToggle{top:10px;left:12px}
-    #toggleMatrixBtn{top:10px;left:120px}
-    #publishBtn{top:10px;left:248px}
+    #publishBtn{top:10px;left:110px}
     #fsBtn{top:10px;right:12px}
+    #controls{display:grid;grid-template-columns:0.85fr 1.15fr 1fr;gap:12px;padding:8px 12px 14px;align-items:center;height:100%}
 
-    #controls{display:grid;grid-template-columns:0.9fr 1.1fr 1fr;gap:12px;padding:8px 12px 14px;align-items:center;height:100%}
-
-    /* Smaller MOVE stick */
-    .stick{position:relative;width:100%;max-width:240px;aspect-ratio:1/1;margin:0 auto;border-radius:50%;
+    /* SMALLER MOVE STICK */
+    .stick{position:relative;width:100%;max-width:220px;aspect-ratio:1/1;margin:0 auto;border-radius:50%;
       background:radial-gradient(85% 85% at 50% 50%,#1c2330,#121722);border:2px solid #2b3344;box-shadow:inset 0 0 20px rgba(0,0,0,.35);touch-action:none}
     .knob{position:absolute;width:40%;aspect-ratio:1/1;border-radius:50%;left:30%;top:30%;
       background:linear-gradient(180deg,#2a3550,#1f2738);border:2px solid #39435a;box-shadow:0 6px 16px rgba(0,0,0,.5)}
+
     .label{text-align:center;margin-top:8px;font-size:14px;color:var(--muted)}
 
     .padbox{position:relative;width:100%;max-width:520px;aspect-ratio:16/10;margin:0 auto;background:linear-gradient(180deg,var(--bg2),#0f141d);
@@ -44,17 +41,13 @@
     }
     .touchpad::after{content:"Drag to rotate"; position:absolute; left:8px; top:8px; font-size:12px; color:#8fa0bf; opacity:.85}
 
-    #hud{position:fixed;left:12px;bottom:12px;z-index:10;width:min(92vw,440px);background:rgba(17,22,30,.9);border:1px solid #2b3344;border-radius:12px;
+    #hud{position:fixed;left:12px;bottom:12px;z-index:10;width:min(92vw,460px);background:rgba(17,22,30,.9);border:1px solid #2b3344;border-radius:12px;
       padding:10px 12px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.25;display:none;white-space:pre;overflow:auto;max-height:52vh}
-    #matrixWrap{position:fixed;left:12px;bottom:12px;z-index:11;width:min(92vw,520px);background:rgba(17,22,30,.92);border:1px solid #2b3344;border-radius:12px;
-      padding:10px 12px;display:none;max-height:55vh;overflow:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.25}
-    #matrix{white-space:pre}
     @media(max-width:820px){#controls{grid-template-columns:1fr}.padbox{max-width:95vw}}
   </style>
 </head>
 <body>
 <button id="hudToggle">HUD: Off</button>
-<button id="toggleMatrixBtn">Show Matrix</button>
 <button id="publishBtn">Publish: On</button>
 <button id="fsBtn">Fullscreen</button>
 
@@ -78,7 +71,7 @@
       <div class="label">Draw symbol (one stroke)</div>
     </div>
 
-    <!-- RIGHT: LOOK TRACKPAD (replaces right stick) -->
+    <!-- RIGHT: LOOK TRACKPAD -->
     <div>
       <div class="touchpad" id="lookPad"></div>
       <div class="label">Look (trackpad)</div>
@@ -86,24 +79,17 @@
   </div>
 
   <footer>
-    <small>MATRIX_SIZE=64 (code). Joystick + matrix publish to Firebase via WebSocket.</small>
+    <small>Realtime over WebSocket. Sends ~60Hz while changing; zero instantly on release.</small>
   </footer>
 </div>
 
 <pre id="hud"></pre>
 
-<div id="matrixWrap">
-  <header>
-    <div>Grayscale Matrix Output</div>
-  </header>
-  <div id="matrix"></div>
-</div>
-
-<!-- Firebase SDK (compat for plain HTML) -->
+<!-- Firebase SDK -->
 <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-database-compat.js"></script>
 <script>
-  // ====== FIREBASE CONFIG (REPLACE WITH YOURS) ======
+  // ===== REPLACE CONFIG =====
   const firebaseConfig = {
     apiKey: "YOUR_API_KEY",
     authDomain: "gamepad-6aba1.firebaseapp.com",
@@ -118,245 +104,123 @@
 </script>
 
 <script>
-  // ===================== CONFIG =====================
-  const MATRIX_SIZE   = 64;
-  const PEN_WIDTH     = 18;
-  const PEN_COLOR     = "#000000";
-  const INACTIVITY_MS = 2000;
-
+  // ===== BASIC UI =====
   const ROOM = new URLSearchParams(location.search).get("room") || "demo";
   document.getElementById("roomLabel").textContent = ROOM;
-  let publishOn = true;
-
-  const padRef  = firebase.database().ref(`rooms/${ROOM}/pad`);
+  const padRef = firebase.database().ref(`rooms/${ROOM}/pad`);
   const drawRef = firebase.database().ref(`rooms/${ROOM}/draw`);
 
-  // ===================== UI =====================
   const hud = document.getElementById("hud");
-  const hudToggle = document.getElementById("hudToggle");
-  const toggleMatrixBtn = document.getElementById("toggleMatrixBtn");
-  const publishBtn = document.getElementById("publishBtn");
-  const matrixWrap = document.getElementById("matrixWrap");
-  const matrixOut  = document.getElementById("matrix");
+  let hudOn=false, publishOn=true;
+  document.getElementById("hudToggle").onclick=()=>{hudOn=!hudOn; hud.style.display=hudOn?"block":"none"; event.target.textContent=`HUD: ${hudOn?"On":"Off"}`};
+  document.getElementById("publishBtn").onclick=()=>{publishOn=!publishOn; event.target.textContent=`Publish: ${publishOn?"On":"Off"}`};
+  document.getElementById("fsBtn").onclick=()=>{ if(document.fullscreenElement){document.exitFullscreen()} else {document.documentElement.requestFullscreen()} };
 
-  let hudOn = false;
-  hudToggle.onclick = () => { hudOn = !hudOn; hud.style.display = hudOn ? "block" : "none"; hudToggle.textContent = "HUD: " + (hudOn ? "On" : "Off"); };
-  toggleMatrixBtn.onclick = () => { matrixWrap.style.display = (matrixWrap.style.display==="block") ? "none":"block"; };
-  publishBtn.onclick = () => { publishOn = !publishOn; publishBtn.textContent = "Publish: " + (publishOn ? "On" : "Off"); };
+  // ===== MOVE STICK (absolute) =====
+  function makeStick(stickEl, knobEl){
+    const rect = {cx:0,cy:0,r:0,w:0,h:0};
+    const axes = {x:0,y:0};
+    let active=false;
 
-  // Fullscreen helper
-  function isFS(){return !!(document.fullscreenElement||document.webkitFullscreenElement||document.msFullscreenElement)}
-  async function toggleFS(){ if(isFS()){await(document.exitFullscreen?.()||document.webkitExitFullscreen?.()||document.msExitFullscreen?.())}
-                             else {await(document.documentElement.requestFullscreen?.()||document.documentElement.webkitRequestFullscreen?.()||document.documentElement.msRequestFullscreen?.())}}
-  document.getElementById("fsBtn").onclick = toggleFS;
-
-  // ===================== MOVE STICK =====================
-  function makeStick(stickEl, knobEl) {
-    const rectState = { w:0, h:0, cx:0, cy:0, r:0 };
-    const axes = { x:0, y:0 };
-    let dragging = false;
-
-    function cacheRect(){
+    function cache(){
       const r = stickEl.getBoundingClientRect();
-      rectState.w = r.width; rectState.h = r.height;
-      rectState.cx = r.left + r.width/2; rectState.cy = r.top + r.height/2;
-      rectState.r = Math.min(r.width, r.height)*0.5*0.9;
+      rect.w=r.width; rect.h=r.height; rect.cx=r.left+r.width/2; rect.cy=r.top+r.height/2;
+      rect.r = Math.min(r.width,r.height)*0.5*0.9;
     }
-    const centerKnob = () => { knobEl.style.left="30%"; knobEl.style.top="30%"; axes.x=0; axes.y=0; };
-    centerKnob();
+    const center=()=>{ knobEl.style.left="30%"; knobEl.style.top="30%"; axes.x=0; axes.y=0; };
+    center(); window.addEventListener("resize", cache, {passive:true}); cache();
 
     function setKnob(px,py){
-      const dx = px - rectState.cx, dy = py - rectState.cy;
-      const mag = Math.hypot(dx,dy), cl = mag>rectState.r ? rectState.r/mag : 1;
-      const cx = dx*cl, cy = dy*cl;
-
-      const lx = (cx/rectState.w*100) + 50;
-      const ly = (cy/rectState.h*100) + 50;
-      knobEl.style.left = `calc(${lx}% - 20%)`;
-      knobEl.style.top  = `calc(${ly}% - 20%)`;
-
-      const dead = 0.05;
-      let nx = cx/rectState.r, ny = -cy/rectState.r;
-      if (Math.abs(nx) < dead) nx = 0;
-      if (Math.abs(ny) < dead) ny = 0;
+      const dx=px-rect.cx, dy=py-rect.cy;
+      const mag=Math.hypot(dx,dy), cl = mag>rect.r ? rect.r/mag : 1;
+      const cx=dx*cl, cy=dy*cl;
+      const lx=(cx/rect.w*100)+50, ly=(cy/rect.h*100)+50;
+      knobEl.style.left=`calc(${lx}% - 20%)`; knobEl.style.top=`calc(${ly}% - 20%)`;
+      let nx=cx/rect.r, ny=-cy/rect.r; // up = +y
+      if (Math.abs(nx)<0.03) nx=0; if (Math.abs(ny)<0.03) ny=0;
       axes.x = +nx.toFixed(3); axes.y = +ny.toFixed(3);
     }
 
-    stickEl.addEventListener("pointerdown", e => { cacheRect(); dragging=true; stickEl.setPointerCapture(e.pointerId); setKnob(e.clientX,e.clientY); });
-    stickEl.addEventListener("pointermove", e => { if(dragging) setKnob(e.clientX,e.clientY); });
-    function end(){ dragging=false; centerKnob(); }
+    stickEl.addEventListener("pointerdown", e=>{cache(); active=true; stickEl.setPointerCapture?.(e.pointerId); setKnob(e.clientX,e.clientY);});
+    stickEl.addEventListener("pointermove", e=>{ if(active) setKnob(e.clientX,e.clientY); });
+    function end(){ active=false; center(); }
     stickEl.addEventListener("pointerup", end);
     stickEl.addEventListener("pointercancel", end);
-    stickEl.addEventListener("pointerleave", () => dragging && end());
-    window.addEventListener("resize", cacheRect, { passive:true });
+    stickEl.addEventListener("pointerleave", ()=>active&&end());
 
-    return () => ({ x:axes.x, y:axes.y });
+    return ()=>({x:axes.x,y:axes.y});
   }
 
-  // ===================== LOOK TRACKPAD (relative) =====================
-  const LOOK_SENS  = 1.1;  // per-drag speed
-  const LOOK_DECAY = 16;   // decay to 0 after release
-  const LOOK_CLAMP = 1.0;  // clamp per-frame delta
-
+  // ===== LOOK TRACKPAD (relative) =====
+  const LOOK_SENS = 1.0, LOOK_CLAMP = 1.0, LOOK_DECAY=18;
   function makeLookPad(padEl){
-    let w=1, h=1, active=false, lastX=0, lastY=0;
-    let vx=0, vy=0;
-    let lastT = performance.now();
+    let w=1,h=1,active=false,lastX=0,lastY=0, vx=0,vy=0, lastT=performance.now();
+    function cache(){const r=padEl.getBoundingClientRect(); w=Math.max(1,r.width); h=Math.max(1,r.height);}
+    window.addEventListener("resize",cache,{passive:true}); cache();
 
-    function cacheRect(){
-      const r = padEl.getBoundingClientRect();
-      w = Math.max(1, r.width); h = Math.max(1, r.height);
-    }
-    window.addEventListener("resize", cacheRect, { passive:true });
-    cacheRect();
-
-    function onDown(e){
-      padEl.setPointerCapture?.(e.pointerId);
-      active = true;
-      const t = e.touches ? e.touches[0] : e;
-      lastX = t.clientX; lastY = t.clientY;
-      lastT = performance.now();
-    }
-    function onMove(e){
+    padEl.addEventListener("pointerdown", e=>{padEl.setPointerCapture?.(e.pointerId); active=true; lastX=e.clientX; lastY=e.clientY; lastT=performance.now();});
+    padEl.addEventListener("pointermove", e=>{
       if(!active) return;
-      const t = e.touches ? e.touches[0] : e;
-      const now = performance.now();
-      const dt  = Math.max(0.016, (now - lastT)/1000); // ~60fps min to avoid spikes
+      const now=performance.now(), dt=Math.max(0.016,(now-lastT)/1000);
+      let nx=((e.clientX-lastX)/w)*LOOK_SENS/dt;
+      let ny=((e.clientY-lastY)/h)*LOOK_SENS/dt;
+      nx=Math.max(-LOOK_CLAMP,Math.min(LOOK_CLAMP,nx));
+      ny=Math.max(-LOOK_CLAMP,Math.min(LOOK_CLAMP,ny));
+      // very light smoothing
+      const a=0.5; vx=vx*(1-a)+nx*a; vy=vy*(1-a)+ny*a;
+      lastX=e.clientX; lastY=e.clientY; lastT=now;
+    });
+    function end(){active=false;}
+    padEl.addEventListener("pointerup", end);
+    padEl.addEventListener("pointercancel", end);
+    padEl.addEventListener("pointerleave", ()=>active&&end());
 
-      const dx = t.clientX - lastX;
-      const dy = t.clientY - lastY;
-
-      let nx = (dx / w) * LOOK_SENS / dt;
-      let ny = (dy / h) * LOOK_SENS / dt;
-
-      nx = Math.max(-LOOK_CLAMP, Math.min(LOOK_CLAMP, nx));
-      ny = Math.max(-LOOK_CLAMP, Math.min(LOOK_CLAMP, ny));
-
-      const a = 0.35; // input smoothing
-      vx = vx*(1-a) + nx*a;
-      vy = vy*(1-a) + ny*a;
-
-      lastX = t.clientX; lastY = t.clientY; lastT = now;
-    }
-    function onUp(){ active = false; }
-
-    padEl.addEventListener("pointerdown", onDown);
-    padEl.addEventListener("pointermove", onMove);
-    padEl.addEventListener("pointerup", onUp);
-    padEl.addEventListener("pointercancel", onUp);
-    padEl.addEventListener("pointerleave", () => active && onUp());
-
-    function tick(){
-      const dt = Math.max(0.016, (performance.now()-lastT)/1000);
-      const decay = Math.exp(-LOOK_DECAY*dt);
+    (function tick(){
+      const dt=Math.max(0.016,(performance.now()-lastT)/1000);
       if(!active){
-        vx *= decay; vy *= decay;
-        if (Math.abs(vx) < 0.001) vx = 0;
-        if (Math.abs(vy) < 0.001) vy = 0;
+        const d=Math.exp(-LOOK_DECAY*dt); vx*=d; vy*=d; if(Math.abs(vx)<0.001)vx=0; if(Math.abs(vy)<0.001)vy=0;
       }
       requestAnimationFrame(tick);
-    }
-    requestAnimationFrame(tick);
+    })();
 
-    return () => ({ x: vx, y: -vy });
+    return ()=>({x:vx, y:-vy}); // drag up = look up
   }
 
   const getMove = makeStick(document.getElementById("stickL"), document.getElementById("knobL"));
   const getLook = makeLookPad(document.getElementById("lookPad"));
 
-  // ============ DRAW → MATRIX ============
-  const canvas = document.getElementById("draw");
-  const ctx = canvas.getContext("2d", { willReadFrequently:true });
-  let W=0, H=0;
+  // ===== DRAW PAD (unchanged basics, still sends after 2s idle) =====
+  const MATRIX_SIZE=64,PEN_WIDTH=18,PEN_COLOR="#000000",INACTIVITY_MS=2000;
+  const canvas=document.getElementById("draw"); const ctx=canvas.getContext("2d",{willReadFrequently:true});
+  let W=0,H=0, drawing=false,lastDX=0,lastDY=0, hasInk=false, inactivityTimer=null;
+  function fitCanvas(){const r=canvas.getBoundingClientRect(); const dpr=Math.max(1,window.devicePixelRatio||1); W=(r.width*dpr)|0; H=(r.height*dpr)|0; canvas.width=W; canvas.height=H; ctx.fillStyle="#fff"; ctx.fillRect(0,0,W,H); ctx.lineJoin="round"; ctx.lineCap="round"; ctx.strokeStyle=PEN_COLOR; ctx.lineWidth=PEN_WIDTH*(window.devicePixelRatio||1);}
+  window.addEventListener("resize",fitCanvas,{passive:true}); fitCanvas();
+  function getP(e){const r=canvas.getBoundingClientRect(); const dpr=Math.max(1,window.devicePixelRatio||1); return {x:(e.clientX-r.left)*dpr,y:(e.clientY-r.top)*dpr};}
+  function begin(e){e.preventDefault(); drawing=true; hasInk=true; const p=getP(e); lastDX=p.x; lastDY=p.y; if(inactivityTimer){clearTimeout(inactivityTimer);}}
+  function move(e){if(!drawing)return; const p=getP(e); ctx.beginPath(); ctx.moveTo(lastDX,lastDY); ctx.lineTo(p.x,p.y); ctx.stroke(); lastDX=p.x; lastDY=p.y;}
+  function end(){ if(!drawing)return; drawing=false; inactivityTimer=setTimeout(()=>{ if(hasInk){ const m=rasterize(); drawRef.set({size:MATRIX_SIZE,matrix:m,t:Date.now()}); fitCanvas(); hasInk=false; }}, INACTIVITY_MS); }
+  canvas.addEventListener("pointerdown",begin); canvas.addEventListener("pointermove",move); canvas.addEventListener("pointerup",end);
+  canvas.addEventListener("pointercancel",end); canvas.addEventListener("pointerleave",()=>drawing&&end());
+  function rasterize(){const off=document.createElement("canvas"); off.width=MATRIX_SIZE; off.height=MATRIX_SIZE; const o=off.getContext("2d",{willReadFrequently:true}); o.fillStyle="#fff"; o.fillRect(0,0,MATRIX_SIZE,MATRIX_SIZE); o.imageSmoothingEnabled=true; o.imageSmoothingQuality="high"; o.drawImage(canvas,0,0,W,H,0,0,MATRIX_SIZE,MATRIX_SIZE); const img=o.getImageData(0,0,MATRIX_SIZE,MATRIX_SIZE).data; const out=[]; for(let y=0;y<MATRIX_SIZE;y++){const row=[]; for(let x=0;x<MATRIX_SIZE;x++){const i=(y*MATRIX_SIZE+x)*4; const r=img[i],g=img[i+1],b=img[i+2]; row.push(Math.round(0.299*r+0.587*g+0.114*b));} out.push(row);} return out;}
 
-  function fitCanvas(){
-    const rect = canvas.getBoundingClientRect();
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
-    W = Math.floor(rect.width * dpr);
-    H = Math.floor(rect.height * dpr);
-    canvas.width = W; canvas.height = H;
-    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, W, H);
-    ctx.lineJoin = "round"; ctx.lineCap = "round";
-    ctx.strokeStyle = PEN_COLOR; ctx.lineWidth = PEN_WIDTH * (window.devicePixelRatio||1);
-  }
-  window.addEventListener("resize", fitCanvas, { passive:true });
-  fitCanvas();
-
-  let drawing=false, lastX=0, lastY=0, inactivityTimer=null, hasInk=false;
-  function stopInactivity(){ if(inactivityTimer){clearTimeout(inactivityTimer); inactivityTimer=null;} }
-  function startInactivity(){
-    stopInactivity();
-    inactivityTimer = setTimeout(() => {
-      if (hasInk){
-        const matrix = rasterizeToMatrix();
-        showMatrix(matrix);
-        drawRef.set({ size: MATRIX_SIZE, matrix, t: Date.now() });
-        fitCanvas();
-        hasInk=false;
-      }
-    }, INACTIVITY_MS);
-  }
-  function getPoint(e){
-    const t = e.touches ? e.touches[0] : e;
-    const rect = canvas.getBoundingClientRect();
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
-    return { x:(t.clientX-rect.left)*dpr, y:(t.clientY-rect.top)*dpr };
-  }
-  function beginDraw(e){ e.preventDefault(); stopInactivity(); drawing=true; hasInk=true; const p=getPoint(e); lastX=p.x; lastY=p.y; }
-  function moveDraw(e){ if(!drawing) return; const p=getPoint(e); ctx.beginPath(); ctx.moveTo(lastX,lastY); ctx.lineTo(p.x,p.y); ctx.stroke(); lastX=p.x; lastY=p.y; }
-  function endDraw(){ if(!drawing) return; drawing=false; startInactivity(); }
-
-  canvas.addEventListener("pointerdown", beginDraw);
-  canvas.addEventListener("pointermove", moveDraw);
-  canvas.addEventListener("pointerup", endDraw);
-  canvas.addEventListener("pointercancel", endDraw);
-  canvas.addEventListener("pointerleave", () => drawing && endDraw());
-
-  function rasterizeToMatrix(){
-    const off = document.createElement("canvas");
-    off.width = MATRIX_SIZE; off.height = MATRIX_SIZE;
-    const octx = off.getContext("2d", { willReadFrequently:true });
-    octx.fillStyle="#fff"; octx.fillRect(0,0,MATRIX_SIZE,MATRIX_SIZE);
-    octx.imageSmoothingEnabled = true; octx.imageSmoothingQuality = "high";
-    octx.drawImage(canvas, 0, 0, W, H, 0, 0, MATRIX_SIZE, MATRIX_SIZE);
-
-    const img = octx.getImageData(0, 0, MATRIX_SIZE, MATRIX_SIZE).data;
-    const mat = [];
-    for (let y=0;y<MATRIX_SIZE;y++){
-      const row=[]; for(let x=0;x<MATRIX_SIZE;x++){
-        const i=(y*MATRIX_SIZE+x)*4; const r=img[i],g=img[i+1],b=img[i+2];
-        row.push(Math.round(0.299*r + 0.587*g + 0.114*b));
-      } mat.push(row);
-    }
-    return mat;
-  }
-  function showMatrix(m){ matrixWrap.style.display="block"; matrixOut.textContent = JSON.stringify(m); }
-
-  // ===================== FAST SEND (40 Hz, only on change) =====================
-  let lastSent=0, prevKey="";
+  // ===== SENDER @ ~60Hz =====
+  let lastSent=0;
   function sendPad(payload){
     if(!publishOn) return;
-    const now = performance.now();
-    const key = payload.axes.join(",") + "|" + payload.look.join(",") + "|" + (payload.draw?.hasInk?1:0);
-    if (key === prevKey) return;
-    if (now - lastSent < 25) return; // ~40 Hz
-    prevKey = key; lastSent = now;
-    padRef.set(payload); // WebSocket push
+    const now=performance.now();
+    if(now-lastSent<16) return; // ~60Hz cap
+    lastSent=now;
+    padRef.set(payload);
   }
 
-  // ===================== MAIN TICK =====================
-  setInterval(() => {
-    const mv = getMove(), lk = getLook();
-    const payload = { axes:[mv.x,mv.y], look:[lk.x,lk.y], draw:{hasInk}, t: Date.now() };
-    if (hudOn){
-      hud.textContent =
-`<Gamepad Output>
-MOVE : { x:${mv.x.toFixed(3)}, y:${mv.y.toFixed(3)} }
-LOOK : { x:${lk.x.toFixed(3)}, y:${lk.y.toFixed(3)} }
-DRAW : { hasInk: ${hasInk} }`;
-    }
+  setInterval(()=>{
+    const mv=getMove(), lk=getLook();
+    // clamp to 3 decimals so small noise doesn’t spam
+    function c(v){ return Math.abs(v)<0.001?0:Math.round(v*1000)/1000; }
+    const payload={ axes:[c(mv.x),c(mv.y)], look:[c(lk.x),c(lk.y)], draw:{hasInk}, t:Date.now() };
+    if(hudOn){ hud.textContent=`MOVE: {x:${payload.axes[0]}, y:${payload.axes[1]}}\nLOOK: {x:${payload.look[0]}, y:${payload.look[1]}}`; }
     sendPad(payload);
-  }, 25);
+  }, 16);
 </script>
 </body>
 </html>
