@@ -190,7 +190,7 @@
   const getLook = makeLookPad(document.getElementById("lookPad"));
 
   // ===== DRAW PAD (unchanged basics, still sends after 2s idle) =====
-  const MATRIX_SIZE=64,PEN_WIDTH=18,PEN_COLOR="#000000",INACTIVITY_MS=2000;
+  const MATRIX_SIZE=32,PEN_WIDTH=18,PEN_COLOR="#000000",INACTIVITY_MS=2000;
   const canvas=document.getElementById("draw"); const ctx=canvas.getContext("2d",{willReadFrequently:true});
   let W=0,H=0, drawing=false,lastDX=0,lastDY=0, hasInk=false, inactivityTimer=null;
   function fitCanvas(){const r=canvas.getBoundingClientRect(); const dpr=Math.max(1,window.devicePixelRatio||1); W=(r.width*dpr)|0; H=(r.height*dpr)|0; canvas.width=W; canvas.height=H; ctx.fillStyle="#fff"; ctx.fillRect(0,0,W,H); ctx.lineJoin="round"; ctx.lineCap="round"; ctx.strokeStyle=PEN_COLOR; ctx.lineWidth=PEN_WIDTH*(window.devicePixelRatio||1);}
@@ -224,3 +224,4 @@
 </script>
 </body>
 </html>
+
