@@ -21,7 +21,6 @@
     #fsBtn{top:10px;right:12px}
     #controls{display:grid;grid-template-columns:0.85fr 1.15fr 1fr;gap:12px;padding:8px 12px 14px;align-items:center;height:100%}
 
-    /* SMALLER MOVE STICK */
     .stick{position:relative;width:100%;max-width:220px;aspect-ratio:1/1;margin:0 auto;border-radius:50%;
       background:radial-gradient(85% 85% at 50% 50%,#1c2330,#121722);border:2px solid #2b3344;box-shadow:inset 0 0 20px rgba(0,0,0,.35);touch-action:none}
     .knob{position:absolute;width:40%;aspect-ratio:1/1;border-radius:50%;left:30%;top:30%;
@@ -57,13 +56,11 @@
   </header>
 
   <div id="controls">
-    <!-- LEFT: MOVE STICK -->
     <div>
       <div class="stick" id="stickL"><div class="knob" id="knobL"></div></div>
       <div class="label">Move</div>
     </div>
 
-    <!-- CENTER: DRAW PAD -->
     <div>
       <div class="padbox">
         <canvas id="draw"></canvas>
@@ -71,7 +68,6 @@
       <div class="label">Draw symbol (one stroke, wait 2s after lifting)</div>
     </div>
 
-    <!-- RIGHT: LOOK TRACKPAD -->
     <div>
       <div class="touchpad" id="lookPad"></div>
       <div class="label">Look (trackpad)</div>
@@ -89,7 +85,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-database-compat.js"></script>
 <script>
-  // ===== REPLACE CONFIG WITH YOUR REAL VALUES =====
   const firebaseConfig = {
     apiKey: "YOUR_API_KEY",
     authDomain: "gamepad-6aba1.firebaseapp.com",
@@ -104,7 +99,6 @@
 </script>
 
 <script>
-  // ===== BASIC UI + REFS =====
   const ROOM = new URLSearchParams(location.search).get("room") || "demo";
   document.getElementById("roomLabel").textContent = ROOM;
 
@@ -274,12 +268,18 @@
     o.drawImage(canvas,0,0,W,H,0,0,MATRIX_SIZE,MATRIX_SIZE);
     const img=o.getImageData(0,0,MATRIX_SIZE,MATRIX_SIZE).data;
     const out=[];
+
     for(let y=0;y<MATRIX_SIZE;y++){
       const row=[];
       for(let x=0;x<MATRIX_SIZE;x++){
         const i=(y*MATRIX_SIZE+x)*4;
-        const r=img[i],g=img[i+1],b=img[i+2];
-        row.push(Math.round(0.299*r+0.587*g+0.114*b));
+        const r=img[i], g=img[i+1], b=img[i+2];
+
+        // ---- grayscale then invert ----
+        const gray = Math.round(0.299*r + 0.587*g + 0.114*b); // 0..255
+        const inv  = 255 - gray;  // white -> 0, black -> 255
+
+        row.push(inv);
       }
       out.push(row);
     }
@@ -295,11 +295,9 @@
       const matrix = rasterize();
       const now = Date.now();
 
-      // 1) store raw matrix
       console.log("[PAD] Writing /draw to Firebase...");
       drawRef.set({size:MATRIX_SIZE, matrix, t: now});
 
-      // 2) call ONNX API
       try{
         console.log("[PAD] POST →", MODEL_URL);
         const res = await fetch(MODEL_URL, {
@@ -311,7 +309,6 @@
         const data = await res.json();
         console.log("[PAD] Model response JSON:", data);
 
-        // 3) write prediction into Firebase
         if (publishOn){
           console.log("[PAD] Writing /prediction to Firebase...");
           await predRef.set({
@@ -330,7 +327,6 @@
         console.error("[PAD] Error calling model API or writing prediction:", err);
       }
 
-      // 4) reset canvas
       fitCanvas();
       hasInk=false;
     }, INACTIVITY_MS);
@@ -371,4 +367,3 @@
 </script>
 </body>
 </html>
- 
