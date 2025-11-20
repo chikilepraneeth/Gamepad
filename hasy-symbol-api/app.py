@@ -1,53 +1,119 @@
+import os
+import time
+import requests
+import numpy as np
+import onnxruntime as ort
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import numpy as np
-import onnxruntime as ort
 
-# -----------------------------
-# ONNX model setup
-# -----------------------------
-ONNX_PATH = "best_tuned_hasy_symbols_simplified.onnx"  # in the same folder as app.py
+# --------------------------------------------------
+# CONFIG
+# --------------------------------------------------
+ONNX_PATH = "best_tuned_hasy_symbols_simplified.onnx"
 
-# class names (same order as training)
+# 🔗 Your Hugging Face direct download URL
+ONNX_URL = (
+    "https://huggingface.co/praneeth143/symbolrecognizer/resolve/main/"
+    "best_tuned_hasy_symbols_simplified.onnx"
+)
+
+# Same class names you saw in Python
 CLASS_NAMES = [
-    r"\pi", r"\alpha", r"\beta", r"\sum", r"\delta", r"\triangle", r"\theta",
-    r"\epsilon", r"\lambda", r"\mu", r"\diameter", r"\sharp", r"\%", r"\triangleright",
-    r"\diamond", r"\pm", r"\div", r"\uplus", r"\star", r"\fint", r"\approx",
-    r"\sim", r"\pitchfork", r"\lightning", r"\notin", r"\infty", r"\heartsuit",
-    r"\triangledown", r"\ohm"
+    r"\pi",
+    r"\alpha",
+    r"\beta",
+    r"\sum",
+    r"\delta",
+    r"\triangle",
+    r"\theta",
+    r"\epsilon",
+    r"\lambda",
+    r"\mu",
+    r"\diameter",
+    r"\sharp",
+    r"\%",
+    r"\triangleright",
+    r"\diamond",
+    r"\pm",
+    r"\div",
+    r"\uplus",
+    r"\star",
+    r"\fint",
+    r"\approx",
+    r"\sim",
+    r"\pitchfork",
+    r"\lightning",
+    r"\notin",
+    r"\infty",
+    r"\heartsuit",
+    r"\triangledown",
+    r"\ohm",
 ]
 
-# Load ONNX
-sess = ort.InferenceSession(ONNX_PATH, providers=["CPUExecutionProvider"])
+# --------------------------------------------------
+# DOWNLOAD MODEL IF MISSING
+# --------------------------------------------------
+def ensure_onnx_present(path: str, url: str) -> None:
+    if os.path.exists(path):
+        print(f"[app] ONNX file already present at: {path}")
+        return
+
+    print(f"[app] ONNX file not found. Downloading from:\n  {url}")
+    t0 = time.time()
+    resp = requests.get(url, stream=True)
+    resp.raise_for_status()
+
+    # Save to disk
+    with open(path, "wb") as f:
+        for chunk in resp.iter_content(chunk_size=8192):
+            if chunk:
+                f.write(chunk)
+
+    print(f"[app] Downloaded ONNX model to {path} in {time.time() - t0:.1f}s")
+
+ensure_onnx_present(ONNX_PATH, ONNX_URL)
+
+# --------------------------------------------------
+# LOAD ONNX MODEL (CPU)
+# --------------------------------------------------
+print("[app] Loading ONNXRuntime session...")
+sess = ort.InferenceSession(
+    ONNX_PATH,
+    providers=["CPUExecutionProvider"],
+)
 input_name = sess.get_inputs()[0].name
 output_name = sess.get_outputs()[0].name
+print("[app] ONNXRuntime session ready.")
 
-# -----------------------------
-# FastAPI app + CORS
-# -----------------------------
+# --------------------------------------------------
+# FASTAPI + CORS
+# --------------------------------------------------
 app = FastAPI()
 
-# 🔥 IMPORTANT: enable CORS so your pad.html origin can call this API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # or set to ["https://gamepad-1-e9w6.onrender.com"]
+    # you can restrict this later to your pad origin:
+    # allow_origins=["https://gamepad-1-e9w6.onrender.com"],
+    allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# -----------------------------
-# Request / Response models
-# -----------------------------
+# --------------------------------------------------
+# Pydantic models
+# --------------------------------------------------
 class MatrixRequest(BaseModel):
     size: int
-    matrix: list[list[int]]
+    matrix: list[list[int]]  # 2D list of 0..255
+
 
 class TopKEntry(BaseModel):
     index: int
     label: str
     prob: float
+
 
 class PredictResponse(BaseModel):
     index: int
@@ -55,17 +121,19 @@ class PredictResponse(BaseModel):
     prob: float
     topk: list[TopKEntry]
 
-# -----------------------------
-# Utility
-# -----------------------------
+
+# --------------------------------------------------
+# Utils
+# --------------------------------------------------
 def softmax(x: np.ndarray) -> np.ndarray:
     x = x - x.max(axis=1, keepdims=True)
     e = np.exp(x)
     return e / e.sum(axis=1, keepdims=True)
 
-# -----------------------------
+
+# --------------------------------------------------
 # Routes
-# -----------------------------
+# --------------------------------------------------
 @app.get("/")
 def root():
     return {
@@ -75,39 +143,47 @@ def root():
         "num_classes": len(CLASS_NAMES),
     }
 
+
 @app.post("/predict_matrix", response_model=PredictResponse)
 def predict_matrix(req: MatrixRequest):
-    # 1) validate size
+    # 1) Validate shape
     h = len(req.matrix)
     w = len(req.matrix[0]) if h > 0 else 0
     if h != req.size or w != req.size or req.size != 32:
-        return {
-            "index": -1,
-            "label": "<bad_size>",
-            "prob": 0.0,
-            "topk": [],
-        }
+        # we still return a valid JSON so JS can inspect error
+        return PredictResponse(
+            index=-1,
+            label=f"<bad_size:{h}x{w}>",
+            prob=0.0,
+            topk=[],
+        )
 
-    # 2) to numpy (1,1,32,32)
+    # 2) Convert to numpy [1,1,32,32], normalize & invert
     arr = np.array(req.matrix, dtype=np.float32)  # [32,32], 0..255
-    arr = arr / 255.0          # 0..1
-    arr = 1.0 - arr            # invert (black strokes = 1.0)
+    arr = arr / 255.0
+    arr = 1.0 - arr  # black strokes -> 1.0
     arr = arr[None, None, :, :]  # [1,1,32,32]
 
-    # 3) run ONNX
-    logits = sess.run([output_name], {input_name: arr})[0]  # [1,29]
+    # 3) Run ONNX
+    logits = sess.run([output_name], {input_name: arr})[0]  # [1,num_classes]
     probs = softmax(logits)
     probs1 = probs[0]
 
     best_idx = int(np.argmax(probs1))
-    best_p   = float(probs1[best_idx])
-    label    = CLASS_NAMES[best_idx] if 0 <= best_idx < len(CLASS_NAMES) else f"class_{best_idx}"
+    best_prob = float(probs1[best_idx])
+
+    label = (
+        CLASS_NAMES[best_idx]
+        if 0 <= best_idx < len(CLASS_NAMES)
+        else f"class_{best_idx}"
+    )
 
     # top-3
     k = min(3, probs1.shape[0])
-    topk_idx = np.argsort(-probs1)[:k]
-    topk = []
-    for i in topk_idx:
+    top_indices = np.argsort(-probs1)[:k]
+
+    topk: list[TopKEntry] = []
+    for i in top_indices:
         idx = int(i)
         topk.append(
             TopKEntry(
@@ -120,6 +196,6 @@ def predict_matrix(req: MatrixRequest):
     return PredictResponse(
         index=best_idx,
         label=label,
-        prob=best_p,
+        prob=best_prob,
         topk=topk,
     )
