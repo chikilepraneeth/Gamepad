@@ -3,7 +3,7 @@ import time
 import requests
 import numpy as np
 import onnxruntime as ort
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -12,13 +12,11 @@ from pydantic import BaseModel
 # --------------------------------------------------
 ONNX_PATH = "best_tuned_hasy_symbols_simplified.onnx"
 
-# 🔗 Your Hugging Face direct download URL
 ONNX_URL = (
     "https://huggingface.co/praneeth143/symbolrecognizer/resolve/main/"
     "best_tuned_hasy_symbols_simplified.onnx"
 )
 
-# Same class names you saw in Python
 CLASS_NAMES = [
     r"\pi",
     r"\alpha",
@@ -64,13 +62,13 @@ def ensure_onnx_present(path: str, url: str) -> None:
     resp = requests.get(url, stream=True)
     resp.raise_for_status()
 
-    # Save to disk
     with open(path, "wb") as f:
         for chunk in resp.iter_content(chunk_size=8192):
             if chunk:
                 f.write(chunk)
 
     print(f"[app] Downloaded ONNX model to {path} in {time.time() - t0:.1f}s")
+
 
 ensure_onnx_present(ONNX_PATH, ONNX_URL)
 
@@ -93,16 +91,16 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    # you can restrict this later to your pad origin:
+    # later you can restrict to your pad origin:
     # allow_origins=["https://gamepad-1-e9w6.onrender.com"],
     allow_origins=["*"],
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"],   # POST, GET, OPTIONS, etc.
+    allow_headers=["*"],   # Content-Type, etc.
 )
 
 # --------------------------------------------------
-# Pydantic models
+# MODELS
 # --------------------------------------------------
 class MatrixRequest(BaseModel):
     size: int
@@ -123,7 +121,7 @@ class PredictResponse(BaseModel):
 
 
 # --------------------------------------------------
-# Utils
+# UTILS
 # --------------------------------------------------
 def softmax(x: np.ndarray) -> np.ndarray:
     x = x - x.max(axis=1, keepdims=True)
@@ -132,7 +130,7 @@ def softmax(x: np.ndarray) -> np.ndarray:
 
 
 # --------------------------------------------------
-# Routes
+# ROUTES
 # --------------------------------------------------
 @app.get("/")
 def root():
@@ -144,13 +142,22 @@ def root():
     }
 
 
+# Explicit OPTIONS handler to make preflight super happy
+@app.options("/predict_matrix")
+def options_predict_matrix():
+    # CORS middleware will add the headers
+    return Response(status_code=200)
+
+
 @app.post("/predict_matrix", response_model=PredictResponse)
 def predict_matrix(req: MatrixRequest):
+    print("[app] /predict_matrix called")
+
     # 1) Validate shape
     h = len(req.matrix)
     w = len(req.matrix[0]) if h > 0 else 0
     if h != req.size or w != req.size or req.size != 32:
-        # we still return a valid JSON so JS can inspect error
+        print(f"[app] Bad size: got {h}x{w}, expected 32x32")
         return PredictResponse(
             index=-1,
             label=f"<bad_size:{h}x{w}>",
@@ -172,11 +179,10 @@ def predict_matrix(req: MatrixRequest):
     best_idx = int(np.argmax(probs1))
     best_prob = float(probs1[best_idx])
 
-    label = (
-        CLASS_NAMES[best_idx]
-        if 0 <= best_idx < len(CLASS_NAMES)
-        else f"class_{best_idx}"
-    )
+    if 0 <= best_idx < len(CLASS_NAMES):
+        label = CLASS_NAMES[best_idx]
+    else:
+        label = f"class_{best_idx}"
 
     # top-3
     k = min(3, probs1.shape[0])
@@ -185,14 +191,16 @@ def predict_matrix(req: MatrixRequest):
     topk: list[TopKEntry] = []
     for i in top_indices:
         idx = int(i)
+        lbl = CLASS_NAMES[idx] if 0 <= idx < len(CLASS_NAMES) else f"class_{idx}"
         topk.append(
             TopKEntry(
                 index=idx,
-                label=CLASS_NAMES[idx] if 0 <= idx < len(CLASS_NAMES) else f"class_{idx}",
+                label=lbl,
                 prob=float(probs1[idx]),
             )
         )
 
+    print(f"[app] Predicted index={best_idx}, label={label}, prob={best_prob:.3f}")
     return PredictResponse(
         index=best_idx,
         label=label,
