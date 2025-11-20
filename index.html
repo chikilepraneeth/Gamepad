@@ -107,14 +107,29 @@
   // ===== BASIC UI =====
   const ROOM = new URLSearchParams(location.search).get("room") || "demo";
   document.getElementById("roomLabel").textContent = ROOM;
-  const padRef = firebase.database().ref(`rooms/${ROOM}/pad`);
+
+  const padRef  = firebase.database().ref(`rooms/${ROOM}/pad`);
   const drawRef = firebase.database().ref(`rooms/${ROOM}/draw`);
+  const predRef = firebase.database().ref(`rooms/${ROOM}/prediction`); // <--- NEW
+
+  const MODEL_URL = "https://gamepad-11.onrender.com/predict_matrix"; // your ONNX API
 
   const hud = document.getElementById("hud");
   let hudOn=false, publishOn=true;
-  document.getElementById("hudToggle").onclick=()=>{hudOn=!hudOn; hud.style.display=hudOn?"block":"none"; event.target.textContent=`HUD: ${hudOn?"On":"Off"}`};
-  document.getElementById("publishBtn").onclick=()=>{publishOn=!publishOn; event.target.textContent=`Publish: ${publishOn?"On":"Off"}`};
-  document.getElementById("fsBtn").onclick=()=>{ if(document.fullscreenElement){document.exitFullscreen()} else {document.documentElement.requestFullscreen()} };
+
+  document.getElementById("hudToggle").onclick=(e)=>{
+    hudOn=!hudOn;
+    hud.style.display=hudOn?"block":"none";
+    e.target.textContent=`HUD: ${hudOn?"On":"Off"}`;
+  };
+  document.getElementById("publishBtn").onclick=(e)=>{
+    publishOn=!publishOn;
+    e.target.textContent=`Publish: ${publishOn?"On":"Off"}`;
+  };
+  document.getElementById("fsBtn").onclick=()=>{
+    if(document.fullscreenElement){document.exitFullscreen()}
+    else {document.documentElement.requestFullscreen()}
+  };
 
   // ===== MOVE STICK (absolute) =====
   function makeStick(stickEl, knobEl){
@@ -135,14 +150,23 @@
       const mag=Math.hypot(dx,dy), cl = mag>rect.r ? rect.r/mag : 1;
       const cx=dx*cl, cy=dy*cl;
       const lx=(cx/rect.w*100)+50, ly=(cy/rect.h*100)+50;
-      knobEl.style.left=`calc(${lx}% - 20%)`; knobEl.style.top=`calc(${ly}% - 20%)`;
+      knobEl.style.left=`calc(${lx}% - 20%)`;
+      knobEl.style.top =`calc(${ly}% - 20%)`;
       let nx=cx/rect.r, ny=-cy/rect.r; // up = +y
-      if (Math.abs(nx)<0.03) nx=0; if (Math.abs(ny)<0.03) ny=0;
-      axes.x = +nx.toFixed(3); axes.y = +ny.toFixed(3);
+      if (Math.abs(nx)<0.03) nx=0;
+      if (Math.abs(ny)<0.03) ny=0;
+      axes.x = +nx.toFixed(3);
+      axes.y = +ny.toFixed(3);
     }
 
-    stickEl.addEventListener("pointerdown", e=>{cache(); active=true; stickEl.setPointerCapture?.(e.pointerId); setKnob(e.clientX,e.clientY);});
-    stickEl.addEventListener("pointermove", e=>{ if(active) setKnob(e.clientX,e.clientY); });
+    stickEl.addEventListener("pointerdown", e=>{
+      cache(); active=true;
+      stickEl.setPointerCapture?.(e.pointerId);
+      setKnob(e.clientX,e.clientY);
+    });
+    stickEl.addEventListener("pointermove", e=>{
+      if(active) setKnob(e.clientX,e.clientY);
+    });
     function end(){ active=false; center(); }
     stickEl.addEventListener("pointerup", end);
     stickEl.addEventListener("pointercancel", end);
@@ -155,10 +179,16 @@
   const LOOK_SENS = 1.0, LOOK_CLAMP = 1.0, LOOK_DECAY=18;
   function makeLookPad(padEl){
     let w=1,h=1,active=false,lastX=0,lastY=0, vx=0,vy=0, lastT=performance.now();
-    function cache(){const r=padEl.getBoundingClientRect(); w=Math.max(1,r.width); h=Math.max(1,r.height);}
+    function cache(){
+      const r=padEl.getBoundingClientRect();
+      w=Math.max(1,r.width); h=Math.max(1,r.height);
+    }
     window.addEventListener("resize",cache,{passive:true}); cache();
 
-    padEl.addEventListener("pointerdown", e=>{padEl.setPointerCapture?.(e.pointerId); active=true; lastX=e.clientX; lastY=e.clientY; lastT=performance.now();});
+    padEl.addEventListener("pointerdown", e=>{
+      padEl.setPointerCapture?.(e.pointerId);
+      active=true; lastX=e.clientX; lastY=e.clientY; lastT=performance.now();
+    });
     padEl.addEventListener("pointermove", e=>{
       if(!active) return;
       const now=performance.now(), dt=Math.max(0.016,(now-lastT)/1000);
@@ -166,7 +196,6 @@
       let ny=((e.clientY-lastY)/h)*LOOK_SENS/dt;
       nx=Math.max(-LOOK_CLAMP,Math.min(LOOK_CLAMP,nx));
       ny=Math.max(-LOOK_CLAMP,Math.min(LOOK_CLAMP,ny));
-      // very light smoothing
       const a=0.5; vx=vx*(1-a)+nx*a; vy=vy*(1-a)+ny*a;
       lastX=e.clientX; lastY=e.clientY; lastT=now;
     });
@@ -178,7 +207,10 @@
     (function tick(){
       const dt=Math.max(0.016,(performance.now()-lastT)/1000);
       if(!active){
-        const d=Math.exp(-LOOK_DECAY*dt); vx*=d; vy*=d; if(Math.abs(vx)<0.001)vx=0; if(Math.abs(vy)<0.001)vy=0;
+        const d=Math.exp(-LOOK_DECAY*dt);
+        vx*=d; vy*=d;
+        if(Math.abs(vx)<0.001)vx=0;
+        if(Math.abs(vy)<0.001)vy=0;
       }
       requestAnimationFrame(tick);
     })();
@@ -189,19 +221,118 @@
   const getMove = makeStick(document.getElementById("stickL"), document.getElementById("knobL"));
   const getLook = makeLookPad(document.getElementById("lookPad"));
 
-  // ===== DRAW PAD (unchanged basics, still sends after 2s idle) =====
+  // ===== DRAW PAD =====
   const MATRIX_SIZE=32,PEN_WIDTH=18,PEN_COLOR="#000000",INACTIVITY_MS=2000;
-  const canvas=document.getElementById("draw"); const ctx=canvas.getContext("2d",{willReadFrequently:true});
-  let W=0,H=0, drawing=false,lastDX=0,lastDY=0, hasInk=false, inactivityTimer=null;
-  function fitCanvas(){const r=canvas.getBoundingClientRect(); const dpr=Math.max(1,window.devicePixelRatio||1); W=(r.width*dpr)|0; H=(r.height*dpr)|0; canvas.width=W; canvas.height=H; ctx.fillStyle="#fff"; ctx.fillRect(0,0,W,H); ctx.lineJoin="round"; ctx.lineCap="round"; ctx.strokeStyle=PEN_COLOR; ctx.lineWidth=PEN_WIDTH*(window.devicePixelRatio||1);}
-  window.addEventListener("resize",fitCanvas,{passive:true}); fitCanvas();
-  function getP(e){const r=canvas.getBoundingClientRect(); const dpr=Math.max(1,window.devicePixelRatio||1); return {x:(e.clientX-r.left)*dpr,y:(e.clientY-r.top)*dpr};}
-  function begin(e){e.preventDefault(); drawing=true; hasInk=true; const p=getP(e); lastDX=p.x; lastDY=p.y; if(inactivityTimer){clearTimeout(inactivityTimer);}}
-  function move(e){if(!drawing)return; const p=getP(e); ctx.beginPath(); ctx.moveTo(lastDX,lastDY); ctx.lineTo(p.x,p.y); ctx.stroke(); lastDX=p.x; lastDY=p.y;}
-  function end(){ if(!drawing)return; drawing=false; inactivityTimer=setTimeout(()=>{ if(hasInk){ const m=rasterize(); drawRef.set({size:MATRIX_SIZE,matrix:m,t:Date.now()}); fitCanvas(); hasInk=false; }}, INACTIVITY_MS); }
-  canvas.addEventListener("pointerdown",begin); canvas.addEventListener("pointermove",move); canvas.addEventListener("pointerup",end);
-  canvas.addEventListener("pointercancel",end); canvas.addEventListener("pointerleave",()=>drawing&&end());
-  function rasterize(){const off=document.createElement("canvas"); off.width=MATRIX_SIZE; off.height=MATRIX_SIZE; const o=off.getContext("2d",{willReadFrequently:true}); o.fillStyle="#fff"; o.fillRect(0,0,MATRIX_SIZE,MATRIX_SIZE); o.imageSmoothingEnabled=true; o.imageSmoothingQuality="high"; o.drawImage(canvas,0,0,W,H,0,0,MATRIX_SIZE,MATRIX_SIZE); const img=o.getImageData(0,0,MATRIX_SIZE,MATRIX_SIZE).data; const out=[]; for(let y=0;y<MATRIX_SIZE;y++){const row=[]; for(let x=0;x<MATRIX_SIZE;x++){const i=(y*MATRIX_SIZE+x)*4; const r=img[i],g=img[i+1],b=img[i+2]; row.push(Math.round(0.299*r+0.587*g+0.114*b));} out.push(row);} return out;}
+  const canvas=document.getElementById("draw");
+  const ctx=canvas.getContext("2d",{willReadFrequently:true});
+  let W=0,H=0,drawing=false,lastDX=0,lastDY=0,hasInk=false,inactivityTimer=null;
+
+  function fitCanvas(){
+    const r=canvas.getBoundingClientRect();
+    const dpr=Math.max(1,window.devicePixelRatio||1);
+    W=(r.width*dpr)|0; H=(r.height*dpr)|0;
+    canvas.width=W; canvas.height=H;
+    ctx.fillStyle="#fff"; ctx.fillRect(0,0,W,H);
+    ctx.lineJoin="round"; ctx.lineCap="round";
+    ctx.strokeStyle=PEN_COLOR;
+    ctx.lineWidth=PEN_WIDTH*(window.devicePixelRatio||1);
+  }
+  window.addEventListener("resize",fitCanvas,{passive:true});
+  fitCanvas();
+
+  function getP(e){
+    const r=canvas.getBoundingClientRect();
+    const dpr=Math.max(1,window.devicePixelRatio||1);
+    return {x:(e.clientX-r.left)*dpr,y:(e.clientY-r.top)*dpr};
+  }
+
+  function begin(e){
+    e.preventDefault();
+    drawing=true; hasInk=true;
+    const p=getP(e);
+    lastDX=p.x; lastDY=p.y;
+    if(inactivityTimer){clearTimeout(inactivityTimer);}
+  }
+
+  function move(e){
+    if(!drawing)return;
+    const p=getP(e);
+    ctx.beginPath();
+    ctx.moveTo(lastDX,lastDY);
+    ctx.lineTo(p.x,p.y);
+    ctx.stroke();
+    lastDX=p.x; lastDY=p.y;
+  }
+
+  function rasterize(){
+    const off=document.createElement("canvas");
+    off.width=MATRIX_SIZE; off.height=MATRIX_SIZE;
+    const o=off.getContext("2d",{willReadFrequently:true});
+    o.fillStyle="#fff"; o.fillRect(0,0,MATRIX_SIZE,MATRIX_SIZE);
+    o.imageSmoothingEnabled=true;
+    o.imageSmoothingQuality="high";
+    o.drawImage(canvas,0,0,W,H,0,0,MATRIX_SIZE,MATRIX_SIZE);
+    const img=o.getImageData(0,0,MATRIX_SIZE,MATRIX_SIZE).data;
+    const out=[];
+    for(let y=0;y<MATRIX_SIZE;y++){
+      const row=[];
+      for(let x=0;x<MATRIX_SIZE;x++){
+        const i=(y*MATRIX_SIZE+x)*4;
+        const r=img[i],g=img[i+1],b=img[i+2];
+        row.push(Math.round(0.299*r+0.587*g+0.114*b));
+      }
+      out.push(row);
+    }
+    return out;
+  }
+
+  function end(){
+    if(!drawing)return;
+    drawing=false;
+    inactivityTimer=setTimeout(async ()=>{
+      if(!hasInk) return;
+      const matrix = rasterize();
+      const now = Date.now();
+
+      // 1) store raw matrix in Firebase
+      drawRef.set({size:MATRIX_SIZE, matrix, t: now});
+
+      // 2) call ONNX API for prediction
+      try{
+        const res = await fetch(MODEL_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ size: MATRIX_SIZE, matrix })
+        });
+        const data = await res.json();
+        console.log("[PAD] Model response:", data);
+
+        // 3) write prediction into Firebase
+        if (publishOn){
+          predRef.set({
+            index: data.index ?? null,
+            label: data.label ?? null,
+            prob:  data.prob  ?? null,
+            topk:  data.topk  ?? null,
+            t:     now,
+            source:"onnx_api"
+          });
+        }
+      } catch(err){
+        console.error("[PAD] Error calling model API:", err);
+      }
+
+      // 4) clear for next symbol
+      fitCanvas();
+      hasInk=false;
+    }, INACTIVITY_MS);
+  }
+
+  canvas.addEventListener("pointerdown",begin);
+  canvas.addEventListener("pointermove",move);
+  canvas.addEventListener("pointerup",end);
+  canvas.addEventListener("pointercancel",end);
+  canvas.addEventListener("pointerleave",()=>drawing&&end());
 
   // ===== SENDER @ ~60Hz =====
   let lastSent=0;
@@ -215,13 +346,20 @@
 
   setInterval(()=>{
     const mv=getMove(), lk=getLook();
-    // clamp to 3 decimals so small noise doesn’t spam
     function c(v){ return Math.abs(v)<0.001?0:Math.round(v*1000)/1000; }
-    const payload={ axes:[c(mv.x),c(mv.y)], look:[c(lk.x),c(lk.y)], draw:{hasInk}, t:Date.now() };
-    if(hudOn){ hud.textContent=`MOVE: {x:${payload.axes[0]}, y:${payload.axes[1]}}\nLOOK: {x:${payload.look[0]}, y:${payload.look[1]}}`; }
+    const payload={
+      axes:[c(mv.x),c(mv.y)],
+      look:[c(lk.x),c(lk.y)],
+      draw:{hasInk},
+      t:Date.now()
+    };
+    if(hudOn){
+      hud.textContent=
+        `MOVE: {x:${payload.axes[0]}, y:${payload.axes[1]}}\n`+
+        `LOOK: {x:${payload.look[0]}, y:${payload.look[1]}}`;
+    }
     sendPad(payload);
   }, 16);
 </script>
 </body>
 </html>
-
