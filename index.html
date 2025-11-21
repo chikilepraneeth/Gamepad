@@ -22,44 +22,25 @@
       padding:10px 12px;text-align:center;color:var(--muted)
     }
     header b{color:var(--fg)}
-
-    /* Only fullscreen button now */
-    #fsBtn{
+    #hudToggle,#publishBtn,#fsBtn{
       position:fixed;z-index:10;
       background:#1b2332;color:#dfe7ff;
       border:1px solid #2b3344;border-radius:10px;
-      padding:8px 12px;font-size:13px;
-      top:10px;right:12px
+      padding:8px 12px;font-size:13px
     }
-
-    /* Outer shared frame for all 3 pads */
-    #controllerFrame{
-      max-width:900px;
-      margin:0 auto;
-      padding:10px;
-      border-radius:18px;
-      border:2px solid #2b3344;
-      background:linear-gradient(180deg,#151a24,#0b0f16);
-      box-shadow:0 10px 30px rgba(0,0,0,.6);
-      display:flex;
-      align-items:stretch;
-      justify-content:center;
-    }
-
+    #hudToggle{top:10px;left:12px}
+    #publishBtn{top:10px;left:110px}
+    #fsBtn{top:10px;right:12px}
     #controls{
       display:grid;
-      grid-template-columns:0.8fr 1.1fr 0.9fr;
-      gap:10px;
-      align-items:center;
-      width:100%;
+      grid-template-columns:0.85fr 1.15fr 1fr;
+      gap:12px;padding:8px 12px 14px;
+      align-items:center;height:100%
     }
 
     .stick{
-      position:relative;
-      width:100%;
-      max-width:180px;        /* smaller */
-      aspect-ratio:1/1;
-      margin:0 auto;border-radius:50%;
+      position:relative;width:100%;max-width:220px;
+      aspect-ratio:1/1;margin:0 auto;border-radius:50%;
       background:radial-gradient(85% 85% at 50% 50%,#1c2330,#121722);
       border:2px solid #2b3344;
       box-shadow:inset 0 0 20px rgba(0,0,0,.35);
@@ -73,30 +54,31 @@
       box-shadow:0 6px 16px rgba(0,0,0,.5)
     }
 
-    .label{text-align:center;margin-top:6px;font-size:13px;color:var(--muted)}
+    .label{text-align:center;margin-top:8px;font-size:14px;color:var(--muted)}
 
-    /* Square draw area, slightly smaller */
+    /* ⭐ Make draw area square, like Tkinter canvas (256x256) */
     .padbox{
       position:relative;
       width:100%;
-      max-width:360px;
-      aspect-ratio:1/1;
+      max-width:520px;
+      aspect-ratio:1/1;            /* <-- square, not 16/10 */
       margin:0 auto;
       background:linear-gradient(180deg,var(--bg2),#0f141d);
-      border-radius:14px;
+      border:2px solid #2b3344;
+      border-radius:12px;
       box-shadow:inset 0 0 18px rgba(0,0,0,.35);
       overflow:hidden;touch-action:none;
       display:flex;align-items:center;justify-content:center;
-      padding:8px
+      padding:10px
     }
     #draw{
       width:100%;height:100%;
-      background:#ffffff;border-radius:10px
+      background:#ffffff;border-radius:8px
     }
 
     .touchpad{
-      position:relative;width:100%;max-width:220px;
-      aspect-ratio:1/1;margin:0 auto;border-radius:12px;
+      position:relative;width:100%;max-width:300px;
+      aspect-ratio:1/1;margin:0 auto;border-radius:10px;
       background:linear-gradient(180deg,#141a24,#0f141d);
       border:2px solid #2b3344;
       box-shadow:inset 0 0 18px rgba(0,0,0,.35);
@@ -105,21 +87,28 @@
     .touchpad::after{
       content:"Drag to rotate";
       position:absolute; left:8px; top:8px;
-      font-size:11px; color:#8fa0bf; opacity:.85
+      font-size:12px; color:#8fa0bf; opacity:.85
     }
 
+    #hud{
+      position:fixed;left:12px;bottom:12px;z-index:10;
+      width:min(92vw,460px);
+      background:rgba(17,22,30,.9);
+      border:1px solid #2b3344;border-radius:12px;
+      padding:10px 12px;
+      font-family:ui-monospace,Menlo,Consolas,monospace;
+      font-size:12px;line-height:1.25;
+      display:none;white-space:pre;overflow:auto;max-height:52vh
+    }
     @media(max-width:820px){
-      #wrap{grid-template-rows:auto 1fr auto}
-      #controllerFrame{max-width:95vw;padding:8px}
-      #controls{
-        grid-template-columns:1fr;
-        gap:10px;
-      }
-      .stick,.touchpad,.padbox{max-width:260px}
+      #controls{grid-template-columns:1fr}
+      .padbox{max-width:95vw}
     }
   </style>
 </head>
 <body>
+<button id="hudToggle">HUD: Off</button>
+<button id="publishBtn">Publish: On</button>
 <button id="fsBtn">Fullscreen</button>
 
 <div id="wrap">
@@ -127,27 +116,25 @@
     <b>Game Pad + Symbol Matrix</b> · Room: <b id="roomLabel">demo</b>
   </header>
 
-  <div id="controllerFrame">
-    <div id="controls">
-      <!-- LEFT: MOVE STICK -->
-      <div>
-        <div class="stick" id="stickL"><div class="knob" id="knobL"></div></div>
-        <div class="label">Move</div>
-      </div>
+  <div id="controls">
+    <!-- LEFT: MOVE STICK -->
+    <div>
+      <div class="stick" id="stickL"><div class="knob" id="knobL"></div></div>
+      <div class="label">Move</div>
+    </div>
 
-      <!-- CENTER: DRAW PAD -->
-      <div>
-        <div class="padbox">
-          <canvas id="draw"></canvas>
-        </div>
-        <div class="label">Draw symbol (wait 2s after lifting)</div>
+    <!-- CENTER: DRAW PAD -->
+    <div>
+      <div class="padbox">
+        <canvas id="draw"></canvas>
       </div>
+      <div class="label">Draw symbol (one stroke, wait 2s after lifting)</div>
+    </div>
 
-      <!-- RIGHT: LOOK TRACKPAD -->
-      <div>
-        <div class="touchpad" id="lookPad"></div>
-        <div class="label">Look (trackpad)</div>
-      </div>
+    <!-- RIGHT: LOOK TRACKPAD -->
+    <div>
+      <div class="touchpad" id="lookPad"></div>
+      <div class="label">Look (trackpad)</div>
     </div>
   </div>
 
@@ -155,6 +142,8 @@
     <small>Realtime over WebSocket. Sends ~60Hz while changing; zero instantly on release.</small>
   </footer>
 </div>
+
+<pre id="hud"></pre>
 
 <!-- Firebase SDK -->
 <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>
@@ -185,19 +174,21 @@
 
   const MODEL_URL = "https://gamepad-11.onrender.com/predict_matrix";
 
-  // Fullscreen button
-  document.getElementById("fsBtn").onclick = () => {
-    const anyDoc = document;
-    const anyElem = document.documentElement || document.body;
+  const hud = document.getElementById("hud");
+  let hudOn=false, publishOn=true;
 
-    if (!anyDoc.fullscreenElement &&
-        anyElem.requestFullscreen) {
-      anyElem.requestFullscreen().catch(err => {
-        console.log("Fullscreen request failed:", err);
-      });
-    } else if (anyDoc.fullscreenElement && anyDoc.exitFullscreen) {
-      anyDoc.exitFullscreen();
-    }
+  document.getElementById("hudToggle").onclick=(e)=>{
+    hudOn=!hudOn;
+    hud.style.display=hudOn?"block":"none";
+    e.target.textContent=`HUD: ${hudOn?"On":"Off"}`;
+  };
+  document.getElementById("publishBtn").onclick=(e)=>{
+    publishOn=!publishOn;
+    e.target.textContent=`Publish: ${publishOn?"On":"Off"}`;
+  };
+  document.getElementById("fsBtn").onclick=()=>{
+    if(document.fullscreenElement){document.exitFullscreen()}
+    else{document.documentElement.requestFullscreen()}
   };
 
   // ===== MOVE STICK =====
@@ -299,7 +290,7 @@
   function fitCanvas(){
     const r=canvas.getBoundingClientRect();
     const dpr=Math.max(1,window.devicePixelRatio||1);
-    W=(r.width*dpr)|0; H=(r.height*dpr)|0;
+    W=(r.width*dpr)|0; H=(r.height*dpr)|0;   // square because padbox is square
     canvas.width=W; canvas.height=H;
     ctx.fillStyle="#fff"; ctx.fillRect(0,0,W,H);   // white background
     ctx.lineJoin="round"; ctx.lineCap="round";
@@ -333,19 +324,28 @@
     lastDX=p.x; lastDY=p.y;
   }
 
-  // Tkinter-like pipeline
+  /**
+   * Rasterize like the Python/Tkinter pipeline:
+   * 1) Work on full-res canvas W x H
+   * 2) Find ink bounding box (non-white pixels)
+   * 3) Crop to that box
+   * 4) Pad to square
+   * 5) Resize that square to 32x32
+   * 6) Return 32x32 grayscale matrix (0=black, 255=white)
+   */
   function rasterizeTkStyle(){
+    // Step 1: full image data
     const fullImg = ctx.getImageData(0,0,W,H);
     const data = fullImg.data;
 
-    // find bounding box of ink (gray < 250)
+    // Step 2: find bounding box of strokes (treat gray < 250 as ink)
     let minX=W, minY=H, maxX=-1, maxY=-1;
     for(let y=0; y<H; y++){
       for(let x=0; x<W; x++){
         const idx = (y*W + x)*4;
         const r = data[idx], g=data[idx+1], b=data[idx+2];
-        const gray = 0.299*r + 0.587*g + 0.114*b;
-        if(gray < 250){
+        const gray = 0.299*r + 0.587*g + 0.114*b; // 0..255
+        if(gray < 250){  // not almost white
           if(x<minX) minX=x;
           if(y<minY) minY=y;
           if(x>maxX) maxX=x;
@@ -354,8 +354,8 @@
       }
     }
 
+    // No ink found → return blank white 32x32
     if(maxX < 0 || maxY < 0){
-      // no ink → blank 32x32
       const blank=[];
       for(let y=0; y<MATRIX_SIZE; y++){
         const row=new Array(MATRIX_SIZE).fill(255);
@@ -368,25 +368,26 @@
     const cropH = maxY - minY + 1;
     const side  = Math.max(cropW, cropH);
 
-    // crop canvas
+    // Step 3: crop region into a small canvas
     const cropCanvas = document.createElement("canvas");
     cropCanvas.width  = cropW;
     cropCanvas.height = cropH;
     const cropCtx = cropCanvas.getContext("2d");
+    // putImageData doesn't scale, we just shift so (minX, minY) becomes (0,0)
     cropCtx.putImageData(fullImg, -minX, -minY);
 
-    // pad to square
+    // Step 4: pad to square
     const squareCanvas = document.createElement("canvas");
     squareCanvas.width  = side;
     squareCanvas.height = side;
     const squareCtx = squareCanvas.getContext("2d");
-    squareCtx.fillStyle="#fff";
+    squareCtx.fillStyle="#fff";         // white background
     squareCtx.fillRect(0,0,side,side);
     const offsetX = (side - cropW)/2;
     const offsetY = (side - cropH)/2;
     squareCtx.drawImage(cropCanvas, offsetX, offsetY);
 
-    // resize to 32x32
+    // Step 5: resize that square to 32x32
     const finalCanvas = document.createElement("canvas");
     finalCanvas.width  = MATRIX_SIZE;
     finalCanvas.height = MATRIX_SIZE;
@@ -401,7 +402,7 @@
       0,0,MATRIX_SIZE,MATRIX_SIZE
     );
 
-    // build matrix (0=black, 255=white)
+    // Step 6: build 32x32 grayscale matrix, white=255, black=0
     const img32 = finalCtx.getImageData(0,0,MATRIX_SIZE,MATRIX_SIZE).data;
     const out=[];
     for(let y=0; y<MATRIX_SIZE; y++){
@@ -410,7 +411,7 @@
         const idx = (y*MATRIX_SIZE + x)*4;
         const r = img32[idx], g=img32[idx+1], b=img32[idx+2];
         const gray = Math.round(0.299*r + 0.587*g + 0.114*b);
-        row.push(gray);
+        row.push(gray); // 0..255 (matches Tk input before ToTensor)
       }
       out.push(row);
     }
@@ -420,19 +421,10 @@
   function end(){
     if(!drawing)return;
     drawing=false;
-
-    // 2 second inactivity timeout
     inactivityTimer=setTimeout(async ()=>{
       if(!hasInk) return;
       console.log("[PAD] Inactivity timeout reached, rasterizing & calling model...");
-
-      // ⏱️ Clear visually immediately at 2 seconds
-      fitCanvas();
-      hasInk = false;
-
-      // Then rasterize from the previous content (we still have it in memory in many cases,
-      // but the important thing for the player is that the pad is cleared after 2s.)
-      const matrix = rasterizeTkStyle();
+      const matrix = rasterizeTkStyle();   // ⭐ Tk-like preprocessing
       const now = Date.now();
 
       console.log("[PAD] Writing /draw to Firebase...");
@@ -449,19 +441,26 @@
         const data = await res.json();
         console.log("[PAD] Model response JSON:", data);
 
-        console.log("[PAD] Writing /prediction to Firebase...");
-        await predRef.set({
-          index: data.index ?? null,
-          label: data.label ?? null,
-          prob:  data.prob  ?? null,
-          topk:  data.topk  ?? null,
-          t:     now,
-          source:"onnx_api"
-        });
-        console.log("[PAD] /prediction write done");
+        if (publishOn){
+          console.log("[PAD] Writing /prediction to Firebase...");
+          await predRef.set({
+            index: data.index ?? null,
+            label: data.label ?? null,
+            prob:  data.prob  ?? null,
+            topk:  data.topk  ?? null,
+            t:     now,
+            source:"onnx_api"
+          });
+          console.log("[PAD] /prediction write done");
+        } else {
+          console.log("[PAD] publishOn=false → skipping /prediction write");
+        }
       } catch(err){
         console.error("[PAD] Error calling model API or writing prediction:", err);
       }
+
+      fitCanvas();
+      hasInk=false;
     }, INACTIVITY_MS);
   }
 
@@ -474,6 +473,7 @@
   // ===== 60Hz PAD SENDER =====
   let lastSent=0;
   function sendPad(payload){
+    if(!publishOn) return;
     const now=performance.now();
     if(now-lastSent<16) return;
     lastSent=now;
@@ -489,6 +489,11 @@
       draw:{hasInk},
       t:Date.now()
     };
+    if(hudOn){
+      hud.textContent=
+        `MOVE: {x:${payload.axes[0]}, y:${payload.axes[1]}}\n`+
+        `LOOK: {x:${payload.look[0]}, y:${payload.look[1]}}`;
+    }
     sendPad(payload);
   }, 16);
 </script>
