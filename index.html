@@ -8,41 +8,102 @@
   <style>
     :root{--bg:#0f1115;--bg2:#161a22;--fg:#e8eefc;--muted:#8fa0bf;--accent:#4cc3ff}
     *{box-sizing:border-box}
-    html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,Segoe UI,Roboto,sans-serif;overflow:hidden;touch-action:none;user-select:none}
-    #wrap{display:grid;grid-template-rows:auto 1fr auto;height:100%;gap:8px}
-    header,footer{padding:10px 12px;text-align:center;color:var(--muted)}
+    html,body{
+      height:100%;margin:0;
+      background:var(--bg);color:var(--fg);
+      font-family:system-ui,Segoe UI,Roboto,sans-serif;
+      overflow:hidden;touch-action:none;user-select:none
+    }
+    #wrap{
+      display:grid;grid-template-rows:auto 1fr auto;
+      height:100%;gap:8px
+    }
+    header,footer{
+      padding:10px 12px;text-align:center;color:var(--muted)
+    }
     header b{color:var(--fg)}
     #hudToggle,#publishBtn,#fsBtn{
-      position:fixed;z-index:10;background:#1b2332;color:#dfe7ff;border:1px solid #2b3344;border-radius:10px;
+      position:fixed;z-index:10;
+      background:#1b2332;color:#dfe7ff;
+      border:1px solid #2b3344;border-radius:10px;
       padding:8px 12px;font-size:13px
     }
     #hudToggle{top:10px;left:12px}
     #publishBtn{top:10px;left:110px}
     #fsBtn{top:10px;right:12px}
-    #controls{display:grid;grid-template-columns:0.85fr 1.15fr 1fr;gap:12px;padding:8px 12px 14px;align-items:center;height:100%}
+    #controls{
+      display:grid;
+      grid-template-columns:0.85fr 1.15fr 1fr;
+      gap:12px;padding:8px 12px 14px;
+      align-items:center;height:100%
+    }
 
-    .stick{position:relative;width:100%;max-width:220px;aspect-ratio:1/1;margin:0 auto;border-radius:50%;
-      background:radial-gradient(85% 85% at 50% 50%,#1c2330,#121722);border:2px solid #2b3344;box-shadow:inset 0 0 20px rgba(0,0,0,.35);touch-action:none}
-    .knob{position:absolute;width:40%;aspect-ratio:1/1;border-radius:50%;left:30%;top:30%;
-      background:linear-gradient(180deg,#2a3550,#1f2738);border:2px solid #39435a;box-shadow:0 6px 16px rgba(0,0,0,.5)}
+    .stick{
+      position:relative;width:100%;max-width:220px;
+      aspect-ratio:1/1;margin:0 auto;border-radius:50%;
+      background:radial-gradient(85% 85% at 50% 50%,#1c2330,#121722);
+      border:2px solid #2b3344;
+      box-shadow:inset 0 0 20px rgba(0,0,0,.35);
+      touch-action:none
+    }
+    .knob{
+      position:absolute;width:40%;aspect-ratio:1/1;
+      border-radius:50%;left:30%;top:30%;
+      background:linear-gradient(180deg,#2a3550,#1f2738);
+      border:2px solid #39435a;
+      box-shadow:0 6px 16px rgba(0,0,0,.5)
+    }
 
     .label{text-align:center;margin-top:8px;font-size:14px;color:var(--muted)}
 
-    .padbox{position:relative;width:100%;max-width:520px;aspect-ratio:16/10;margin:0 auto;background:linear-gradient(180deg,var(--bg2),#0f141d);
-      border:2px solid #2b3344;border-radius:12px;box-shadow:inset 0 0 18px rgba(0,0,0,.35);overflow:hidden;touch-action:none;display:flex;align-items:center;justify-content:center;padding:10px}
-    #draw{width:100%;height:100%;background:#ffffff;border-radius:8px}
+    /* ⭐ Make draw area square, like Tkinter canvas (256x256) */
+    .padbox{
+      position:relative;
+      width:100%;
+      max-width:520px;
+      aspect-ratio:1/1;            /* <-- square, not 16/10 */
+      margin:0 auto;
+      background:linear-gradient(180deg,var(--bg2),#0f141d);
+      border:2px solid #2b3344;
+      border-radius:12px;
+      box-shadow:inset 0 0 18px rgba(0,0,0,.35);
+      overflow:hidden;touch-action:none;
+      display:flex;align-items:center;justify-content:center;
+      padding:10px
+    }
+    #draw{
+      width:100%;height:100%;
+      background:#ffffff;border-radius:8px
+    }
 
     .touchpad{
-      position:relative;width:100%;max-width:300px;aspect-ratio:1/1;margin:0 auto;border-radius:10px;
+      position:relative;width:100%;max-width:300px;
+      aspect-ratio:1/1;margin:0 auto;border-radius:10px;
       background:linear-gradient(180deg,#141a24,#0f141d);
-      border:2px solid #2b3344;box-shadow:inset 0 0 18px rgba(0,0,0,.35);
+      border:2px solid #2b3344;
+      box-shadow:inset 0 0 18px rgba(0,0,0,.35);
       overflow:hidden;touch-action:none;
     }
-    .touchpad::after{content:"Drag to rotate"; position:absolute; left:8px; top:8px; font-size:12px; color:#8fa0bf; opacity:.85}
+    .touchpad::after{
+      content:"Drag to rotate";
+      position:absolute; left:8px; top:8px;
+      font-size:12px; color:#8fa0bf; opacity:.85
+    }
 
-    #hud{position:fixed;left:12px;bottom:12px;z-index:10;width:min(92vw,460px);background:rgba(17,22,30,.9);border:1px solid #2b3344;border-radius:12px;
-      padding:10px 12px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.25;display:none;white-space:pre;overflow:auto;max-height:52vh}
-    @media(max-width:820px){#controls{grid-template-columns:1fr}.padbox{max-width:95vw}}
+    #hud{
+      position:fixed;left:12px;bottom:12px;z-index:10;
+      width:min(92vw,460px);
+      background:rgba(17,22,30,.9);
+      border:1px solid #2b3344;border-radius:12px;
+      padding:10px 12px;
+      font-family:ui-monospace,Menlo,Consolas,monospace;
+      font-size:12px;line-height:1.25;
+      display:none;white-space:pre;overflow:auto;max-height:52vh
+    }
+    @media(max-width:820px){
+      #controls{grid-template-columns:1fr}
+      .padbox{max-width:95vw}
+    }
   </style>
 </head>
 <body>
@@ -56,11 +117,13 @@
   </header>
 
   <div id="controls">
+    <!-- LEFT: MOVE STICK -->
     <div>
       <div class="stick" id="stickL"><div class="knob" id="knobL"></div></div>
       <div class="label">Move</div>
     </div>
 
+    <!-- CENTER: DRAW PAD -->
     <div>
       <div class="padbox">
         <canvas id="draw"></canvas>
@@ -68,6 +131,7 @@
       <div class="label">Draw symbol (one stroke, wait 2s after lifting)</div>
     </div>
 
+    <!-- RIGHT: LOOK TRACKPAD -->
     <div>
       <div class="touchpad" id="lookPad"></div>
       <div class="label">Look (trackpad)</div>
@@ -85,6 +149,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-database-compat.js"></script>
 <script>
+  // 🔧 REPLACE with your real config values
   const firebaseConfig = {
     apiKey: "YOUR_API_KEY",
     authDomain: "gamepad-6aba1.firebaseapp.com",
@@ -99,6 +164,7 @@
 </script>
 
 <script>
+  // ===== BASIC UI + REFS =====
   const ROOM = new URLSearchParams(location.search).get("room") || "demo";
   document.getElementById("roomLabel").textContent = ROOM;
 
@@ -215,8 +281,8 @@
   const getMove = makeStick(document.getElementById("stickL"), document.getElementById("knobL"));
   const getLook = makeLookPad(document.getElementById("lookPad"));
 
-  // ===== DRAW PAD + MODEL CALL =====
-  const MATRIX_SIZE=32,PEN_WIDTH=18,PEN_COLOR="#000000",INACTIVITY_MS=2000;
+  // ===== DRAW PAD + TKINTER-LIKE RASTERIZE =====
+  const MATRIX_SIZE=32, PEN_WIDTH=18, PEN_COLOR="#000000", INACTIVITY_MS=2000;
   const canvas=document.getElementById("draw");
   const ctx=canvas.getContext("2d",{willReadFrequently:true});
   let W=0,H=0,drawing=false,lastDX=0,lastDY=0,hasInk=false,inactivityTimer=null;
@@ -224,9 +290,9 @@
   function fitCanvas(){
     const r=canvas.getBoundingClientRect();
     const dpr=Math.max(1,window.devicePixelRatio||1);
-    W=(r.width*dpr)|0; H=(r.height*dpr)|0;
+    W=(r.width*dpr)|0; H=(r.height*dpr)|0;   // square because padbox is square
     canvas.width=W; canvas.height=H;
-    ctx.fillStyle="#fff"; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle="#fff"; ctx.fillRect(0,0,W,H);   // white background
     ctx.lineJoin="round"; ctx.lineCap="round";
     ctx.strokeStyle=PEN_COLOR;
     ctx.lineWidth=PEN_WIDTH*(window.devicePixelRatio||1);
@@ -258,28 +324,94 @@
     lastDX=p.x; lastDY=p.y;
   }
 
-  function rasterize(){
-    const off=document.createElement("canvas");
-    off.width=MATRIX_SIZE; off.height=MATRIX_SIZE;
-    const o=off.getContext("2d",{willReadFrequently:true});
-    o.fillStyle="#fff"; o.fillRect(0,0,MATRIX_SIZE,MATRIX_SIZE);
-    o.imageSmoothingEnabled=true;
-    o.imageSmoothingQuality="high";
-    o.drawImage(canvas,0,0,W,H,0,0,MATRIX_SIZE,MATRIX_SIZE);
-    const img=o.getImageData(0,0,MATRIX_SIZE,MATRIX_SIZE).data;
+  /**
+   * Rasterize like the Python/Tkinter pipeline:
+   * 1) Work on full-res canvas W x H
+   * 2) Find ink bounding box (non-white pixels)
+   * 3) Crop to that box
+   * 4) Pad to square
+   * 5) Resize that square to 32x32
+   * 6) Return 32x32 grayscale matrix (0=black, 255=white)
+   */
+  function rasterizeTkStyle(){
+    // Step 1: full image data
+    const fullImg = ctx.getImageData(0,0,W,H);
+    const data = fullImg.data;
+
+    // Step 2: find bounding box of strokes (treat gray < 250 as ink)
+    let minX=W, minY=H, maxX=-1, maxY=-1;
+    for(let y=0; y<H; y++){
+      for(let x=0; x<W; x++){
+        const idx = (y*W + x)*4;
+        const r = data[idx], g=data[idx+1], b=data[idx+2];
+        const gray = 0.299*r + 0.587*g + 0.114*b; // 0..255
+        if(gray < 250){  // not almost white
+          if(x<minX) minX=x;
+          if(y<minY) minY=y;
+          if(x>maxX) maxX=x;
+          if(y>maxY) maxY=y;
+        }
+      }
+    }
+
+    // No ink found → return blank white 32x32
+    if(maxX < 0 || maxY < 0){
+      const blank=[];
+      for(let y=0; y<MATRIX_SIZE; y++){
+        const row=new Array(MATRIX_SIZE).fill(255);
+        blank.push(row);
+      }
+      return blank;
+    }
+
+    const cropW = maxX - minX + 1;
+    const cropH = maxY - minY + 1;
+    const side  = Math.max(cropW, cropH);
+
+    // Step 3: crop region into a small canvas
+    const cropCanvas = document.createElement("canvas");
+    cropCanvas.width  = cropW;
+    cropCanvas.height = cropH;
+    const cropCtx = cropCanvas.getContext("2d");
+    // putImageData doesn't scale, we just shift so (minX, minY) becomes (0,0)
+    cropCtx.putImageData(fullImg, -minX, -minY);
+
+    // Step 4: pad to square
+    const squareCanvas = document.createElement("canvas");
+    squareCanvas.width  = side;
+    squareCanvas.height = side;
+    const squareCtx = squareCanvas.getContext("2d");
+    squareCtx.fillStyle="#fff";         // white background
+    squareCtx.fillRect(0,0,side,side);
+    const offsetX = (side - cropW)/2;
+    const offsetY = (side - cropH)/2;
+    squareCtx.drawImage(cropCanvas, offsetX, offsetY);
+
+    // Step 5: resize that square to 32x32
+    const finalCanvas = document.createElement("canvas");
+    finalCanvas.width  = MATRIX_SIZE;
+    finalCanvas.height = MATRIX_SIZE;
+    const finalCtx = finalCanvas.getContext("2d");
+    finalCtx.fillStyle="#fff";
+    finalCtx.fillRect(0,0,MATRIX_SIZE,MATRIX_SIZE);
+    finalCtx.imageSmoothingEnabled = true;
+    finalCtx.imageSmoothingQuality = "high";
+    finalCtx.drawImage(
+      squareCanvas,
+      0,0,side,side,
+      0,0,MATRIX_SIZE,MATRIX_SIZE
+    );
+
+    // Step 6: build 32x32 grayscale matrix, white=255, black=0
+    const img32 = finalCtx.getImageData(0,0,MATRIX_SIZE,MATRIX_SIZE).data;
     const out=[];
-
-    for(let y=0;y<MATRIX_SIZE;y++){
+    for(let y=0; y<MATRIX_SIZE; y++){
       const row=[];
-      for(let x=0;x<MATRIX_SIZE;x++){
-        const i=(y*MATRIX_SIZE+x)*4;
-        const r=img[i], g=img[i+1], b=img[i+2];
-
-        // ---- grayscale then invert ----
-        const gray = Math.round(0.299*r + 0.587*g + 0.114*b); // 0..255
-        const inv  = 255 - gray;  // white -> 0, black -> 255
-
-        row.push(inv);
+      for(let x=0; x<MATRIX_SIZE; x++){
+        const idx = (y*MATRIX_SIZE + x)*4;
+        const r = img32[idx], g=img32[idx+1], b=img32[idx+2];
+        const gray = Math.round(0.299*r + 0.587*g + 0.114*b);
+        row.push(gray); // 0..255 (matches Tk input before ToTensor)
       }
       out.push(row);
     }
@@ -292,7 +424,7 @@
     inactivityTimer=setTimeout(async ()=>{
       if(!hasInk) return;
       console.log("[PAD] Inactivity timeout reached, rasterizing & calling model...");
-      const matrix = rasterize();
+      const matrix = rasterizeTkStyle();   // ⭐ Tk-like preprocessing
       const now = Date.now();
 
       console.log("[PAD] Writing /draw to Firebase...");
