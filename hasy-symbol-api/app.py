@@ -168,7 +168,7 @@ def predict_matrix(req: MatrixRequest):
     # 2) Convert to numpy [1,1,32,32], normalize & invert
     arr = np.array(req.matrix, dtype=np.float32)  # [32,32], 0..255
     arr = arr / 255.0
-    arr = 1.0 - arr  # black strokes -> 1.0
+    #arr = 1.0 - arr  # black strokes -> 1.0
     arr = arr[None, None, :, :]  # [1,1,32,32]
 
     # 3) Run ONNX
@@ -207,3 +207,4 @@ def predict_matrix(req: MatrixRequest):
         prob=best_prob,
         topk=topk,
     )
+
