@@ -7,13 +7,25 @@
   <meta name="theme-color" content="#000000">
   <style>
     :root{--bg:#0f1115;--bg2:#161a22;--fg:#e8eefc;--muted:#8fa0bf;--accent:#4cc3ff}
-    *{box-sizing:border-box}
+
+    /* ⭐ Stronger global anti-selection + anti-callout */
+    *{
+      box-sizing:border-box;
+      -webkit-user-select:none;
+      -ms-user-select:none;
+      user-select:none;
+      -webkit-touch-callout:none; /* no long-press menu on iOS */
+    }
+
     html,body{
       height:100%;margin:0;
       background:var(--bg);color:var(--fg);
       font-family:system-ui,Segoe UI,Roboto,sans-serif;
-      overflow:hidden;touch-action:none;user-select:none
+      overflow:hidden;
+      touch-action:none;          /* no scrolling/pinch via touch */
+      -webkit-text-size-adjust:100%;
     }
+
     #wrap{
       display:grid;grid-template-rows:auto 1fr auto;
       height:100%;gap:8px
@@ -56,12 +68,12 @@
 
     .label{text-align:center;margin-top:8px;font-size:14px;color:var(--muted)}
 
-    /* ⭐ Make draw area square, like Tkinter canvas (256x256) */
+    /* ⭐ Draw area square (Tkinter-style) */
     .padbox{
       position:relative;
       width:100%;
       max-width:520px;
-      aspect-ratio:1/1;            /* <-- square, not 16/10 */
+      aspect-ratio:1/1;
       margin:0 auto;
       background:linear-gradient(180deg,var(--bg2),#0f141d);
       border:2px solid #2b3344;
@@ -290,9 +302,9 @@
   function fitCanvas(){
     const r=canvas.getBoundingClientRect();
     const dpr=Math.max(1,window.devicePixelRatio||1);
-    W=(r.width*dpr)|0; H=(r.height*dpr)|0;   // square because padbox is square
+    W=(r.width*dpr)|0; H=(r.height*dpr)|0;
     canvas.width=W; canvas.height=H;
-    ctx.fillStyle="#fff"; ctx.fillRect(0,0,W,H);   // white background
+    ctx.fillStyle="#fff"; ctx.fillRect(0,0,W,H);
     ctx.lineJoin="round"; ctx.lineCap="round";
     ctx.strokeStyle=PEN_COLOR;
     ctx.lineWidth=PEN_WIDTH*(window.devicePixelRatio||1);
@@ -324,28 +336,17 @@
     lastDX=p.x; lastDY=p.y;
   }
 
-  /**
-   * Rasterize like the Python/Tkinter pipeline:
-   * 1) Work on full-res canvas W x H
-   * 2) Find ink bounding box (non-white pixels)
-   * 3) Crop to that box
-   * 4) Pad to square
-   * 5) Resize that square to 32x32
-   * 6) Return 32x32 grayscale matrix (0=black, 255=white)
-   */
   function rasterizeTkStyle(){
-    // Step 1: full image data
     const fullImg = ctx.getImageData(0,0,W,H);
     const data = fullImg.data;
 
-    // Step 2: find bounding box of strokes (treat gray < 250 as ink)
     let minX=W, minY=H, maxX=-1, maxY=-1;
     for(let y=0; y<H; y++){
       for(let x=0; x<W; x++){
         const idx = (y*W + x)*4;
         const r = data[idx], g=data[idx+1], b=data[idx+2];
-        const gray = 0.299*r + 0.587*g + 0.114*b; // 0..255
-        if(gray < 250){  // not almost white
+        const gray = 0.299*r + 0.587*g + 0.114*b;
+        if(gray < 250){
           if(x<minX) minX=x;
           if(y<minY) minY=y;
           if(x>maxX) maxX=x;
@@ -354,7 +355,6 @@
       }
     }
 
-    // No ink found → return blank white 32x32
     if(maxX < 0 || maxY < 0){
       const blank=[];
       for(let y=0; y<MATRIX_SIZE; y++){
@@ -368,26 +368,22 @@
     const cropH = maxY - minY + 1;
     const side  = Math.max(cropW, cropH);
 
-    // Step 3: crop region into a small canvas
     const cropCanvas = document.createElement("canvas");
     cropCanvas.width  = cropW;
     cropCanvas.height = cropH;
     const cropCtx = cropCanvas.getContext("2d");
-    // putImageData doesn't scale, we just shift so (minX, minY) becomes (0,0)
     cropCtx.putImageData(fullImg, -minX, -minY);
 
-    // Step 4: pad to square
     const squareCanvas = document.createElement("canvas");
     squareCanvas.width  = side;
     squareCanvas.height = side;
     const squareCtx = squareCanvas.getContext("2d");
-    squareCtx.fillStyle="#fff";         // white background
+    squareCtx.fillStyle="#fff";
     squareCtx.fillRect(0,0,side,side);
     const offsetX = (side - cropW)/2;
     const offsetY = (side - cropH)/2;
     squareCtx.drawImage(cropCanvas, offsetX, offsetY);
 
-    // Step 5: resize that square to 32x32
     const finalCanvas = document.createElement("canvas");
     finalCanvas.width  = MATRIX_SIZE;
     finalCanvas.height = MATRIX_SIZE;
@@ -402,7 +398,6 @@
       0,0,MATRIX_SIZE,MATRIX_SIZE
     );
 
-    // Step 6: build 32x32 grayscale matrix, white=255, black=0
     const img32 = finalCtx.getImageData(0,0,MATRIX_SIZE,MATRIX_SIZE).data;
     const out=[];
     for(let y=0; y<MATRIX_SIZE; y++){
@@ -411,7 +406,7 @@
         const idx = (y*MATRIX_SIZE + x)*4;
         const r = img32[idx], g=img32[idx+1], b=img32[idx+2];
         const gray = Math.round(0.299*r + 0.587*g + 0.114*b);
-        row.push(gray); // 0..255 (matches Tk input before ToTensor)
+        row.push(gray);
       }
       out.push(row);
     }
@@ -424,7 +419,7 @@
     inactivityTimer=setTimeout(async ()=>{
       if(!hasInk) return;
       console.log("[PAD] Inactivity timeout reached, rasterizing & calling model...");
-      const matrix = rasterizeTkStyle();   // ⭐ Tk-like preprocessing
+      const matrix = rasterizeTkStyle();
       const now = Date.now();
 
       console.log("[PAD] Writing /draw to Firebase...");
@@ -497,5 +492,34 @@
     sendPad(payload);
   }, 16);
 </script>
+
+<!-- 🚫 Extra protection: disable selection, context menu, and double-tap zoom -->
+<script>
+  // Disable long-press context menu
+  window.addEventListener('contextmenu', function (e) {
+    e.preventDefault();
+  });
+
+  // Extra block on selection events
+  document.addEventListener('selectstart', function (e) {
+    e.preventDefault();
+  });
+
+  // Prevent double-tap zoom (iOS / mobile)
+  let lastTouchEnd = 0;
+  document.addEventListener('touchend', function (event) {
+    const now = Date.now();
+    if (now - lastTouchEnd <= 300) {
+      event.preventDefault();
+    }
+    lastTouchEnd = now;
+  }, { passive: false });
+
+  // Prevent pinch-zoom gesture on some browsers
+  document.addEventListener('gesturestart', function (e) {
+    e.preventDefault();
+  });
+</script>
+
 </body>
 </html>
